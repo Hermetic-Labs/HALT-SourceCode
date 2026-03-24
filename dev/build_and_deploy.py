@@ -28,12 +28,12 @@ ELECTRON_DIR = REPO_ROOT / "dev" / "electron-launcher"
 PKG_JSON = ELECTRON_DIR / "package.json"
 BUILDS_DIR = REPO_ROOT / "builds"
 
-# ── R2 Configuration ─────────────────────────────────────────────────────────
-R2_ACCOUNT_ID = "ad23f2f0adb042be51b65f0cfc214835"
-R2_ACCESS_KEY = "e6b0de29a4383b45dc52478b7d158b51"
-R2_SECRET_KEY = "e472c058cf6e47685e022767e1befdea5e9dbba507addbe2ff5e4eb2d3f0d1e5"
+# ── R2 Configuration (from environment — never commit secrets) ────────────────
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY", "")
+R2_SECRET_KEY = os.environ.get("R2_SECRET_KEY", "")
 R2_BUCKET = "hermetic-labs-triage"
-R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com" if R2_ACCOUNT_ID else ""
 
 
 def banner():
@@ -185,6 +185,10 @@ def zip_distribution(source_dir, version):
 
 def upload_to_r2(zip_path, version):
     """Upload the zip to Cloudflare R2 using multipart upload."""
+    if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY]):
+        print("  [ERROR]   R2 credentials not set. Export these env vars:")
+        print("            R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY")
+        return False
     try:
         import boto3
         from boto3.s3.transfer import TransferConfig
@@ -403,6 +407,60 @@ def git_release(version):
     return True
 
 
+def github_release(version):
+    """Create a GitHub Release from the tag using gh CLI."""
+    tag = f"v{version}"
+    is_prerelease = any(x in version for x in ["-alpha", "-beta", "-rc"])
+    
+    # Extract release notes from CHANGELOG.md
+    notes = ""
+    changelog = REPO_ROOT / "CHANGELOG.md"
+    if changelog.exists():
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+        capture = False
+        for line in lines:
+            if line.startswith(f"## [{version}]"):
+                capture = True
+                continue
+            elif capture and line.startswith("## ["):
+                break
+            elif capture and line.strip() == "---":
+                break
+            elif capture:
+                notes += line + "\n"
+        notes = notes.strip()
+    
+    if not notes:
+        notes = f"Release {tag}"
+    
+    print(f"  [GITHUB]  Creating release {tag}...")
+    
+    cmd = [
+        "gh", "release", "create", tag,
+        "--title", f"HALT {tag}",
+        "--notes", notes,
+        "--repo", "Hermetic-Labs/halt",
+    ]
+    if is_prerelease:
+        cmd.append("--prerelease")
+    
+    result = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if "gh" in stderr.lower() and "not found" in stderr.lower() or "not recognized" in stderr.lower():
+            print(f"  [SKIP]    gh CLI not installed — create release manually at:")
+            print(f"            https://github.com/Hermetic-Labs/halt/releases/new?tag={tag}")
+            return True  # non-fatal
+        print(f"  [WARN]    GitHub release failed: {stderr}")
+        print(f"            Create manually: https://github.com/Hermetic-Labs/halt/releases/new?tag={tag}")
+        return True  # non-fatal — git + R2 already succeeded
+    
+    print(f"            {result.stdout.strip()}")
+    print(f"  [OK]      GitHub Release created")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="HALT Build & Deploy Pipeline")
     parser.add_argument("--bump", choices=["patch", "minor", "major"], default="patch",
@@ -478,7 +536,14 @@ def main():
         success = upload_to_r2(zip_path, version)
         if not success:
             sys.exit(1)
-    else:
+    
+    # ── GitHub Release ────────────────────────────────────────────────────
+    if args.release:
+        print()
+        github_release(version)
+    
+    if not args.deploy and not args.release:
+        print()
         print()
         print(f"  [INFO]    To deploy, re-run with --deploy")
         print(f"            python {Path(__file__).name} --zip-only --no-bump --deploy")
@@ -493,6 +558,8 @@ def main():
         steps.append("pushed")
     if args.deploy:
         steps.append("deployed")
+    if args.release:
+        steps.append("released")
     
     print()
     print("  ╔═══════════════════════════════════════╗")

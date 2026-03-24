@@ -77,8 +77,8 @@ The backend starts on `http://localhost:7778`. Other devices on the same WiFi ca
 │      ├── /wards       Ward map + patient placement      │
 │      └── /inventory   Supply tracking                   │
 │                                                         │
-│  runtime/python/  ← Portable Python 3.13 (no install)  │
-│  models/          ← All AI runs locally on-device      │
+│  runtime/python/  ← Portable Python 3.13 (no install)   │
+│  models/          ← All AI runs locally on-device       │
 └───────────────┬─────────────────────────────────────────┘
                 │ local WiFi
      ┌──────────┼──────────┐
@@ -132,21 +132,19 @@ The backend starts on `http://localhost:7778`. Other devices on the same WiFi ca
 ## 🛠️ Dev Tooling
 
 ```bash
-# Golden path — edit code, then:
-python dev/build_and_deploy.py --release              # build → zip → git tag+push → R2 upload
-
-# Individual steps
-python dev/setup.py                                    # Download models + runtime (~4 GB from R2)
-python dev/build_and_deploy.py --zip-only --deploy     # Zip existing build + push to R2
-python dev/build_and_deploy.py --upload-assets         # Push models/runtime to R2
-python dev/build_and_deploy.py --bump minor            # Bump version + build
+git clone https://github.com/Hermetic-Labs/halt.git
+cd halt
+pip install boto3
+python dev/setup.py          # Downloads AI models + runtime (~4 GB)
+start_on_Windows.bat         # Launch on Windows
+./start_on_Mac.sh            # Launch on macOS
 ```
 
 ---
 
 ## 📄 License
 
-[MIT](LICENSE) — © 2026 Hermetic Labs · FrontDesk@7Hermeticlabs.com
+[MIT](LICENSE) — © 2026 Hermetic Labs · <FrontDesk@7Hermeticlabs.com>
 
 ---
 

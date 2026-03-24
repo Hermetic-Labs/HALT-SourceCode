@@ -25,9 +25,10 @@ runtime/
 builds/
 HALT-v1.0.01/
 
-# ── Runtime user data (never committed) ──────────────────────────────────────
+# ── Runtime user data + secrets (never committed) ────────────────────────────
 patients/
 *.key
+.env
 
 # ── Node modules (reinstallable) ─────────────────────────────────────────────
 node_modules/
