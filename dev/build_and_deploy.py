@@ -1,14 +1,17 @@
 """
 HALT Build & Deploy Pipeline
 =============================
-Builds the Electron app, bumps version, zips it, and uploads to Cloudflare R2.
+Builds the app for Windows (Electron) or macOS (standalone Python), bumps
+version, zips, and uploads to Cloudflare R2.
 
 Usage:
-  python build_and_deploy.py                 # Build only
-  python build_and_deploy.py --deploy        # Build + upload to R2
-  python build_and_deploy.py --bump minor    # Bump minor version before build
-  python build_and_deploy.py --bump major    # Bump major version before build
-  python build_and_deploy.py --zip-only      # Just zip existing build folder and deploy
+  python build_and_deploy.py                       # Build Windows (default)
+  python build_and_deploy.py --platform mac        # Build macOS (run on a Mac)
+  python build_and_deploy.py --deploy              # Build + upload to R2
+  python build_and_deploy.py --bump minor          # Bump minor version
+  python build_and_deploy.py --zip-only            # Zip existing build
+  python build_and_deploy.py --release             # Full release pipeline
+  python build_and_deploy.py --upload-assets       # Upload dev assets to R2
 """
 
 import os
@@ -19,6 +22,7 @@ import subprocess
 import argparse
 import threading
 import zipfile
+import platform as platform_mod
 from pathlib import Path
 
 # ── Paths (all relative to repo root) ────────────────────────────────────────
@@ -149,11 +153,145 @@ def build_electron(version):
         return None
 
 
-def zip_distribution(source_dir, version):
+# ── macOS Build ──────────────────────────────────────────────────────────────
+
+# Standalone Python URLs (python-build-standalone)
+PYTHON_VERSION = "3.13.3"
+PYTHON_RELEASE = "20250517"
+PYTHON_URLS = {
+    "arm64": f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_RELEASE}/cpython-{PYTHON_VERSION}+{PYTHON_RELEASE}-aarch64-apple-darwin-install_only.tar.gz",
+    "x64":   f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_RELEASE}/cpython-{PYTHON_VERSION}+{PYTHON_RELEASE}-x86_64-apple-darwin-install_only.tar.gz",
+}
+
+
+def detect_mac_arch():
+    """Detect current Mac architecture."""
+    machine = platform_mod.machine()
+    if machine == "arm64":
+        return "arm64"
+    elif machine == "x86_64":
+        return "x64"
+    else:
+        print(f"  [ERROR]   Unsupported architecture: {machine}")
+        sys.exit(1)
+
+
+def build_macos_runtime(version):
+    """Download standalone Python and install all deps for macOS distribution."""
+    arch = detect_mac_arch()
+    print(f"  [BUILD]   Building macOS runtime ({arch})...")
+
+    runtime_dir = REPO_ROOT / "runtime"
+    python_dir = runtime_dir / "python"
+    python_bin = python_dir / "bin" / "python3"
+
+    # Step 1: Download standalone Python if needed
+    if python_bin.exists():
+        print(f"  [SKIP]    Standalone Python already at {python_dir}")
+    else:
+        url = PYTHON_URLS[arch]
+        tarball = REPO_ROOT / "python-standalone.tar.gz"
+        print(f"  [GET]     Downloading Python {PYTHON_VERSION} ({arch})...")
+
+        import urllib.request
+        urllib.request.urlretrieve(url, str(tarball))
+        print(f"  [UNZIP]   Extracting...")
+
+        runtime_dir.mkdir(exist_ok=True)
+        subprocess.run(["tar", "-xzf", str(tarball), "-C", str(runtime_dir)], check=True)
+        tarball.unlink()
+
+        if not python_bin.exists():
+            print(f"  [ERROR]   Python binary not found at {python_bin}")
+            sys.exit(1)
+
+        print(f"  [OK]      Python {PYTHON_VERSION} ready")
+
+    # Step 2: Install deps
+    print(f"  [PIP]     Installing dependencies...")
+    subprocess.run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip", "--quiet"], check=True)
+    subprocess.run([str(python_bin), "-m", "pip", "install", "-r", str(REPO_ROOT / "requirements.txt"), "--quiet"], check=True)
+
+    # Metal GPU support for llama-cpp-python
+    print(f"  [GPU]     Installing llama-cpp-python with Metal...")
+    env = os.environ.copy()
+    env["CMAKE_ARGS"] = "-DGGML_METAL=on"
+    subprocess.run(
+        [str(python_bin), "-m", "pip", "install", "llama-cpp-python", "--quiet", "--force-reinstall", "--no-cache-dir"],
+        env=env, check=True,
+    )
+
+    # Step 3: Verify critical imports
+    print(f"  [CHECK]   Verifying critical packages...")
+    critical = ["fastapi", "uvicorn", "llama_cpp", "kokoro_onnx", "onnxruntime", "faster_whisper", "ctranslate2"]
+    for pkg in critical:
+        result = subprocess.run([str(python_bin), "-c", f"import {pkg}"], capture_output=True)
+        status = "✓" if result.returncode == 0 else "✗"
+        print(f"            {status} {pkg}")
+        if result.returncode != 0:
+            print(f"  [ERROR]   {pkg} failed to import")
+            sys.exit(1)
+
+    print(f"  [OK]      macOS runtime ready ({arch})")
+    return arch
+
+
+def stage_macos(version):
+    """Stage the macOS distribution into a build folder."""
+    arch = detect_mac_arch()
+    folder_name = f"HALT-v{version}-macOS-{arch}"
+    stage_dir = BUILDS_DIR / folder_name
+
+    print(f"  [STAGE]   Preparing macOS bundle...")
+
+    if stage_dir.exists():
+        shutil.rmtree(stage_dir)
+    stage_dir.mkdir(parents=True)
+
+    copies = [
+        (REPO_ROOT / "api",      stage_dir / "api"),
+        (REPO_ROOT / "viewer",   stage_dir / "viewer"),
+        (REPO_ROOT / "triage",   stage_dir / "triage"),
+        (REPO_ROOT / "runtime",  stage_dir / "runtime"),
+        (REPO_ROOT / "assets",   stage_dir / "assets"),
+    ]
+
+    for src, dst in copies:
+        if src.exists():
+            print(f"            copying {src.name}/...")
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            print(f"            [WARN] {src.name}/ not found")
+
+    # Copy top-level files
+    for f in ["start.py", "requirements.txt", "README.md", "LICENSE"]:
+        src = REPO_ROOT / f
+        if src.exists():
+            shutil.copy2(src, stage_dir / f)
+
+    # Empty models dir (auto-downloads on first run)
+    (stage_dir / "models").mkdir(exist_ok=True)
+
+    # Clean up __pycache__ and raw source data
+    for p in stage_dir.rglob("__pycache__"):
+        shutil.rmtree(p, ignore_errors=True)
+    for p in stage_dir.rglob("*.pyc"):
+        p.unlink(missing_ok=True)
+    icd_dir = stage_dir / "triage" / "_source" / "icd10cm-2025"
+    if icd_dir.exists():
+        shutil.rmtree(icd_dir, ignore_errors=True)
+    icd_zip = stage_dir / "triage" / "_source" / "icd10cm-2025.zip"
+    icd_zip.unlink(missing_ok=True)
+
+    print(f"  [OK]      macOS bundle staged: {stage_dir}")
+    return stage_dir
+
+
+def zip_distribution(source_dir, version, platform_name="Windows"):
     """Zip the distribution into builds/ folder using ZIP64 for large archives."""
     BUILDS_DIR.mkdir(exist_ok=True)
     
-    zip_name = f"HALT-v{version}-Windows.zip"
+    zip_name = f"HALT-v{version}-{platform_name}.zip"
     zip_path = BUILDS_DIR / zip_name
     
     print(f"  [ZIP]     Creating {zip_name} (ZIP64)...")
@@ -183,7 +321,7 @@ def zip_distribution(source_dir, version):
     return str(zip_path)
 
 
-def upload_to_r2(zip_path, version):
+def upload_to_r2(zip_path, version, platform_name="Windows"):
     """Upload the zip to Cloudflare R2 using multipart upload."""
     if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY]):
         print("  [ERROR]   R2 credentials not set. Export these env vars:")
@@ -196,7 +334,7 @@ def upload_to_r2(zip_path, version):
         print("  [ERROR]   boto3 not installed. Run: pip install boto3")
         return False
     
-    object_name = f"HALT-v{version}-Windows.zip"
+    object_name = f"HALT-v{version}-{platform_name}.zip"
     file_size = os.path.getsize(zip_path)
     
     print(f"  [UPLOAD]  {object_name} ({file_size / (1024**3):.2f} GB)")
@@ -246,7 +384,7 @@ def upload_to_r2(zip_path, version):
         print(f"  [OK]      Upload complete!")
         
         # Also upload as latest (direct upload, not copy — R2 copy hangs on large objects)
-        latest_name = "HALT-latest-Windows.zip"
+        latest_name = f"HALT-latest-{platform_name}.zip"
         print(f"  [UPLOAD]  Uploading as {latest_name}...")
         s3.upload_file(
             zip_path,
@@ -463,6 +601,8 @@ def github_release(version):
 
 def main():
     parser = argparse.ArgumentParser(description="HALT Build & Deploy Pipeline")
+    parser.add_argument("--platform", choices=["win", "mac"], default="win",
+                        help="Target platform: win (default) or mac")
     parser.add_argument("--bump", choices=["patch", "minor", "major"], default="patch",
                         help="Version bump level (default: patch)")
     parser.add_argument("--no-bump", action="store_true",
@@ -472,9 +612,9 @@ def main():
     parser.add_argument("--release", action="store_true",
                         help="Full release: build → zip → git commit+tag+push → R2 upload")
     parser.add_argument("--zip-only", action="store_true",
-                        help="Skip electron build, just zip existing build folder and optionally deploy")
+                        help="Skip build, just zip existing build folder")
     parser.add_argument("--upload-assets", action="store_true",
-                        help="Zip and upload models/ + runtime/ to R2 for dev/setup.py")
+                        help="Zip and upload models/ + runtime/ to R2")
     args = parser.parse_args()
     
     # --release implies --deploy
@@ -495,33 +635,48 @@ def main():
     else:
         version = bump_version(args.bump)
     
-    # ── Build or Zip-Only ─────────────────────────────────────────────────
-    if args.zip_only:
-        # Use existing built distribution — try versioned folder, then fallback
-        candidates = [
-            REPO_ROOT / f"HALT-v{version}",
-            REPO_ROOT / "HALT-v1.0.01",  # legacy folder name
-        ]
-        existing = None
-        for c in candidates:
-            if c.exists():
-                existing = c
-                break
-        if existing is None:
-            print(f"  [ERROR]   No build folder found. Tried: {[str(c) for c in candidates]}")
-            sys.exit(1)
-        print(f"  [SKIP]    Using existing build: {existing}")
-        source_dir = existing
+    # ── Build ─────────────────────────────────────────────────────────────
+    if args.platform == "mac":
+        # macOS path: standalone Python + raw ZIP (no Electron)
+        platform_name = f"macOS-{detect_mac_arch()}"
+
+        if args.zip_only:
+            candidates = list(BUILDS_DIR.glob(f"HALT-v{version}-macOS-*"))
+            if not candidates:
+                print(f"  [ERROR]   No macOS build folder found in builds/")
+                sys.exit(1)
+            source_dir = candidates[0]
+            print(f"  [SKIP]    Using existing build: {source_dir}")
+        else:
+            build_macos_runtime(version)
+            source_dir = stage_macos(version)
     else:
-        # Stage and build
-        stage_dir = stage_app(version)
-        source_dir = build_electron(version)
-        if source_dir is None:
-            print("\n  Build failed. Use --zip-only to package existing build.")
-            sys.exit(1)
+        # Windows path: Electron build
+        platform_name = "Windows"
+
+        if args.zip_only:
+            candidates = [
+                REPO_ROOT / f"HALT-v{version}",
+                REPO_ROOT / "HALT-v1.0.01",  # legacy folder name
+            ]
+            source_dir = None
+            for c in candidates:
+                if c.exists():
+                    source_dir = c
+                    break
+            if source_dir is None:
+                print(f"  [ERROR]   No build folder found. Tried: {[str(c) for c in candidates]}")
+                sys.exit(1)
+            print(f"  [SKIP]    Using existing build: {source_dir}")
+        else:
+            stage_dir = stage_app(version)
+            source_dir = build_electron(version)
+            if source_dir is None:
+                print("\n  Build failed. Use --zip-only to package existing build.")
+                sys.exit(1)
     
     # ── Zip ───────────────────────────────────────────────────────────────
-    zip_path = zip_distribution(source_dir, version)
+    zip_path = zip_distribution(source_dir, version, platform_name)
     
     # ── Git Release ───────────────────────────────────────────────────────
     if args.release:
@@ -533,7 +688,7 @@ def main():
     # ── Deploy ────────────────────────────────────────────────────────────
     if args.deploy:
         print()
-        success = upload_to_r2(zip_path, version)
+        success = upload_to_r2(zip_path, version, platform_name)
         if not success:
             sys.exit(1)
     
