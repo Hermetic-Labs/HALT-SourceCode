@@ -30,6 +30,13 @@ patients/
 *.key
 .env
 
+# ── Raw source data (generated triage data is in triage/conditions/) ──────────
+triage/_source/icd10cm-2025/
+triage/_source/icd10cm-2025.zip
+
+# ── Test / temp directories ──────────────────────────────────────────────────
+__fresh_test__/
+
 # ── Node modules (reinstallable) ─────────────────────────────────────────────
 node_modules/
 
