@@ -3,16 +3,16 @@
 # ==============================================================================
 #
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │  GIT (this repo — source only)  │  CLOUDFLARE R2                           │
-# │  → github.com/Hermetic-Labs     │                                          │
+# │  GIT (this repo — source only)  │  CLOUDFLARE R2                            │
+# │  → github.com/Hermetic-Labs     │                                           │
 # │                                 │  BUILDS (end users):                      │
-# │  api/          backend source   │    HALT-v1.0.0-Windows.zip               │
-# │  electron/     shell source     │    HALT-latest-Windows.zip               │
-# │  viewer/       frontend dist    │                                          │
+# │  api/          backend source   │    HALT-v1.0.0-Windows.zip                │
+# │  electron/     shell source     │    HALT-latest-Windows.zip                │
+# │  viewer/       frontend dist    │                                           │
 # │  triage/       medical data     │  DEV ASSETS (after git clone):            │
 # │  dev/          build + setup    │    models.zip → extracts to models/       │
 # │  assets/       logo, branding   │    runtime-windows.zip → runtime/         │
-# │  start.py, launchers, docs     │                                          │
+# │  start.py, launchers, docs      │                                           │
 # │                                 │  Setup: python dev/setup.py               │
 # └─────────────────────────────────────────────────────────────────────────────┘
 

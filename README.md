@@ -48,13 +48,12 @@ Everything is included — no internet needed after download.
 ```bash
 git clone https://github.com/Hermetic-Labs/halt.git
 cd halt
-pip install boto3
-python dev/setup.py          # Downloads AI models + runtime from R2 (~4 GB)
-start_on_Windows.bat         # Windows
-./start_on_Mac.sh            # macOS
+pip install -r requirements.txt
+python start.py              # Auto-downloads AI models on first run (~4 GB)
 ```
 
-The backend starts on `http://localhost:7778`. Other devices on the same WiFi can connect via browser.
+> The backend starts on `http://localhost:7778`. AI models download automatically the first time you run.
+> Other devices on the same WiFi can connect via browser.
 
 </details>
 
@@ -129,16 +128,24 @@ The backend starts on `http://localhost:7778`. Other devices on the same WiFi ca
 
 ---
 
-## 🛠️ Dev Tooling
+## 🛠️ Prerequisites
 
-```bash
-git clone https://github.com/Hermetic-Labs/halt.git
-cd halt
-pip install boto3
-python dev/setup.py          # Downloads AI models + runtime (~4 GB)
-start_on_Windows.bat         # Launch on Windows
-./start_on_Mac.sh            # Launch on macOS
-```
+| Requirement | Version | Why |
+|:------------|:--------|:----|
+| **Python** | 3.10+ | Backend, AI inference, launcher |
+| **Git** | Any | Clone the repo |
+| **pip** | Any | `pip install boto3` for setup script |
+| **Node.js** | 18+ | Only needed if modifying the viewer frontend |
+| **~10 GB disk** | — | Models (~4 GB) + runtime + source |
+
+## 🩺 Troubleshooting
+
+| Symptom | Fix |
+|:--------|:----|
+| `python start.py` → "module not found" | Run `python dev/setup.py` first to download models + runtime |
+| Port 7778 already in use | `python start.py --api-port 8000` |
+| Models downloading slowly | They're ~4 GB from Cloudflare R2 — grab a coffee ☕ |
+| Want to modify the frontend? | You'll need Node.js: `cd viewer && npm install && npm run dev` |
 
 ---
 

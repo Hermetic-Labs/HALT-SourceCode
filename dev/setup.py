@@ -25,12 +25,12 @@ REPO_ROOT = SCRIPT_DIR.parent
 MODELS_DIR = REPO_ROOT / "models"
 RUNTIME_DIR = REPO_ROOT / "runtime"
 
-# ── R2 Configuration (same bucket as build_and_deploy.py) ────────────────────
-R2_ACCOUNT_ID = "ad23f2f0adb042be51b65f0cfc214835"
-R2_ACCESS_KEY = "e6b0de29a4383b45dc52478b7d158b51"
-R2_SECRET_KEY = "e472c058cf6e47685e022767e1befdea5e9dbba507addbe2ff5e4eb2d3f0d1e5"
+# ── R2 Configuration (from environment — prime-author only) ──────────────────
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY", "")
+R2_SECRET_KEY = os.environ.get("R2_SECRET_KEY", "")
 R2_BUCKET = "hermetic-labs-triage"
-R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com" if R2_ACCOUNT_ID else ""
 
 ASSETS = {
     "models": {
@@ -64,6 +64,12 @@ def get_s3_client():
         import boto3
     except ImportError:
         print("  [ERROR]   boto3 not installed. Run: pip install boto3")
+        sys.exit(1)
+
+    if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY]):
+        print("  [ERROR]   R2 credentials not set. This tool is for the prime author.")
+        print("            Developers: download models from GitHub Releases instead.")
+        print("            https://github.com/Hermetic-Labs/halt/releases")
         sys.exit(1)
 
     return boto3.client(
@@ -183,7 +189,7 @@ def main():
     print()
     if success:
         check_all()
-        print("  Ready to develop! Run start_on_Windows.bat or ./start_on_Mac.sh")
+        print("  Ready to develop! Run: python start.py")
     else:
         print("  [WARN]    Some downloads failed. See errors above.")
         print("            Make sure assets are uploaded: python dev/build_and_deploy.py --upload-assets")

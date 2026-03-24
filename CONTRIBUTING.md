@@ -5,9 +5,10 @@ Thank you for your interest in contributing to HALT. This project exists to save
 ## Getting Started
 
 1. **Fork** the repo and clone it locally
-2. Run `pip install boto3` then `python dev/setup.py` to download models + runtime from R2
-3. Run `start_on_Windows.bat` (Windows) or `./start_on_Mac.sh` (macOS)
-4. The backend starts on `http://localhost:7778` with `--reload` — edit Python, save, see changes
+2. Run `pip install -r requirements.txt` to install Python dependencies
+3. Run `python start.py` (works on Windows, macOS, and Linux)
+4. AI models auto-download on first run (~4 GB one-time download)
+5. The backend starts on `http://localhost:7778` with `--reload` — edit Python, save, see changes
 
 ## Project Structure
 
@@ -25,7 +26,7 @@ Thank you for your interest in contributing to HALT. This project exists to save
 ## How to Contribute
 
 ### Reporting Issues
-- Use GitHub Issues
+- Use GitHub Issues — we have templates for [Bug Reports](.github/ISSUE_TEMPLATE/bug_report.md) and [Feature Requests](.github/ISSUE_TEMPLATE/feature_request.md)
 - Include your OS, steps to reproduce, and expected vs actual behavior
 - For medical data issues, tag with `clinical-safety`
 

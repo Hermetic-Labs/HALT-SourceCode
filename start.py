@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-start.py - Universal launcher for Eve Os: Triage
+start.py - Universal launcher for HALT
 
 Handles:
 - Backend API server (FastAPI on port 7777)
@@ -21,6 +21,12 @@ import time
 import webbrowser
 import shutil
 import signal
+import zipfile
+import urllib.request
+
+# ── Public R2 URLs (zero credentials needed) ─────────────────────────────────
+MODELS_URL = "https://pub-b841d8ac01084f8f822078f923a49a87.r2.dev/halt-dev-assets/models.zip"
+MODELS_CHECK_FILE = "medgemma-4b-it-q4_K_M.gguf"
 
 # ── Platform Detection ────────────────────────────────────────────────────────
 
@@ -89,23 +95,76 @@ class ProcessManager:
 
 def find_project_root():
     """Find the project root (where api/, viewer/ exist)."""
-    # Start from this script's directory and walk up
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Check common patterns
-    candidates = [
-        script_dir,
-        os.path.dirname(script_dir),  # Parent directory
-    ]
-    
+    candidates = [script_dir, os.path.dirname(script_dir)]
     for candidate in candidates:
-        api_path = os.path.join(candidate, 'api')
-        viewer_path = os.path.join(candidate, 'viewer')
-        if os.path.isdir(api_path) and os.path.isdir(viewer_path):
+        if os.path.isdir(os.path.join(candidate, 'api')) and os.path.isdir(os.path.join(candidate, 'viewer')):
             return candidate
-    
-    # Fallback to script dir
     return script_dir
+
+
+# ── Model Auto-Download ──────────────────────────────────────────────────────
+
+def ensure_models(root_dir):
+    """Check if AI models are present; download from public R2 if not."""
+    models_dir = os.path.join(root_dir, 'models')
+    check_file = os.path.join(models_dir, MODELS_CHECK_FILE)
+
+    if os.path.exists(check_file):
+        log('OK', 'AI models found', Colors.GREEN)
+        return True
+
+    log('INFO', 'AI models not found — downloading from Cloudflare R2...')
+    log('INFO', f'This is a one-time ~4 GB download. Grab a coffee. ☕')
+    print()
+
+    zip_path = os.path.join(root_dir, 'models.zip')
+
+    try:
+        # Get file size
+        req = urllib.request.Request(MODELS_URL, method='HEAD')
+        with urllib.request.urlopen(req) as resp:
+            total_size = int(resp.headers.get('Content-Length', 0))
+
+        # Download with progress
+        downloaded = [0]
+        def report(block_num, block_size, total):
+            downloaded[0] += block_size
+            if total > 0:
+                pct = min(downloaded[0] / total * 100, 100)
+                mb = downloaded[0] / (1024 ** 2)
+                total_mb = total / (1024 ** 2)
+                sys.stdout.write(f'\r  [GET]     {pct:.0f}% ({mb:.0f} / {total_mb:.0f} MB)')
+                sys.stdout.flush()
+
+        urllib.request.urlretrieve(MODELS_URL, zip_path, reporthook=report)
+        print()  # newline after progress
+        log('OK', 'Download complete', Colors.GREEN)
+
+    except Exception as e:
+        print()
+        log('ERROR', f'Download failed: {e}', Colors.RED)
+        log('INFO', 'You can download models manually from:', Colors.BLUE)
+        log('INFO', f'  {MODELS_URL}', Colors.BLUE)
+        log('INFO', f'  Extract to: {models_dir}/', Colors.BLUE)
+        return False
+
+    # Extract
+    log('INFO', 'Extracting models...')
+    try:
+        os.makedirs(models_dir, exist_ok=True)
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(models_dir)
+        log('OK', 'Models ready', Colors.GREEN)
+    except Exception as e:
+        log('ERROR', f'Extraction failed: {e}', Colors.RED)
+        return False
+    finally:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+    print()
+    return True
 
 
 # ── Backend Server ───────────────────────────────────────────────────────────
@@ -295,7 +354,7 @@ def start_frontend_prod(viewer_dir, port, manager=None):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='Eve Os: Triage Launcher')
+    parser = argparse.ArgumentParser(description='HALT Launcher')
     parser.add_argument('--no-browser', action='store_true', help='Don\'t open browser automatically')
     parser.add_argument('--prod', action='store_true', help='Use production build')
     parser.add_argument('--port', type=int, default=7777, help='Frontend port (default: 7777)')
@@ -317,6 +376,10 @@ def main():
     if not os.path.exists(os.path.join(root, 'viewer', 'package.json')):
         log('ERROR', 'viewer/package.json not found. Are you in the right directory?', Colors.RED)
         sys.exit(1)
+    
+    # Auto-download models if missing
+    if not ensure_models(root):
+        log('WARN', 'Continuing without AI models — some features will be unavailable', Colors.YELLOW)
     
     manager = ProcessManager()
     
@@ -345,7 +408,7 @@ def main():
     
     # Wait for shutdown
     print()
-    log('START', 'Eve Os: Triage is running!', Colors.GREEN + Colors.BOLD)
+    log('START', 'HALT is running!', Colors.GREEN + Colors.BOLD)
     print(f"""
   API Server:  http://localhost:{args.api_port}
   Web UI:      http://localhost:{args.port}
