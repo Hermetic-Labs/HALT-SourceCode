@@ -212,10 +212,14 @@ def build_macos_runtime(version):
     subprocess.run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip", "--quiet"], check=True)
     subprocess.run([str(python_bin), "-m", "pip", "install", "-r", str(REPO_ROOT / "requirements.txt"), "--quiet"], check=True)
 
-    # Metal GPU support for llama-cpp-python
-    print(f"  [GPU]     Installing llama-cpp-python with Metal...")
+    # GPU acceleration for llama-cpp-python (Metal on ARM, CPU-only on Intel)
     env = os.environ.copy()
-    env["CMAKE_ARGS"] = "-DGGML_METAL=on"
+    if arch == "arm64":
+        print(f"  [GPU]     Installing llama-cpp-python with Metal acceleration...")
+        env["CMAKE_ARGS"] = "-DGGML_METAL=on"
+    else:
+        print(f"  [CPU]     Installing llama-cpp-python (CPU-only, no Metal on Intel)...")
+        env["CMAKE_ARGS"] = "-DGGML_METAL=off"
     subprocess.run(
         [str(python_bin), "-m", "pip", "install", "llama-cpp-python", "--quiet", "--force-reinstall", "--no-cache-dir"],
         env=env, check=True,
