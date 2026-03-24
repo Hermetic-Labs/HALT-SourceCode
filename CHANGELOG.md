@@ -4,9 +4,23 @@ All notable changes to HALT will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-alpha] — 2026-03-24
+
+### Fixed
+
+- Vertically centered Mass Casualty button on Intake tab (flex layout fix)
+
+### Changed
+
+- Updated MIT License year to 2026 and added contact email
+- Version scheme now includes `-alpha` tag for active development builds
+
+---
+
 ## [1.0.0] — 2026-03-23
 
 ### Added
+
 - FastAPI backend with 13 API routes (patients, inference, TTS, STT, translation, inventory, distribution, mesh, roster, wards, tasks, health)
 - Pre-built React frontend (viewer) served by the backend
 - Electron desktop shell for Windows

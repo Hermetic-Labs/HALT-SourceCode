@@ -21,7 +21,7 @@ logger = logging.getLogger("triage")
 _root = Path(os.environ.get("TRIAGE_ROOT", Path(__file__).resolve().parent.parent))
 _frontend = _root / "frontend"
 
-app = FastAPI(title="Triage", description="Offline AI Field Assistant", version="1.0.0")
+app = FastAPI(title="Triage", description="Offline AI Field Assistant", version="1.0.1-alpha")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 app.include_router(health.router)

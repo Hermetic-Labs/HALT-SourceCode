@@ -8,7 +8,7 @@ Usage:
   python build_and_deploy.py --deploy        # Build + upload to R2
   python build_and_deploy.py --bump minor    # Bump minor version before build
   python build_and_deploy.py --bump major    # Bump major version before build
-  python build_and_deploy.py --zip-only      # Just zip existing HALT-v1.0.01 and deploy
+  python build_and_deploy.py --zip-only      # Just zip existing build folder and deploy
 """
 
 import os
@@ -51,9 +51,15 @@ def read_version():
 
 
 def bump_version(level="patch"):
-    """Bump version in package.json. Returns the new version string."""
+    """Bump version in package.json. Preserves pre-release suffix (e.g. -alpha)."""
     pkg = json.loads(PKG_JSON.read_text(encoding="utf-8"))
-    parts = [int(x) for x in pkg["version"].split(".")]
+    old_version = pkg["version"]
+    
+    # Separate pre-release suffix (e.g. '1.0.1-alpha' → '1.0.1', '-alpha')
+    base = old_version.split("-")[0]
+    suffix = "-" + old_version.split("-", 1)[1] if "-" in old_version else ""
+    
+    parts = [int(x) for x in base.split(".")]
     
     if level == "major":
         parts = [parts[0] + 1, 0, 0]
@@ -62,11 +68,11 @@ def bump_version(level="patch"):
     else:  # patch
         parts = [parts[0], parts[1], parts[2] + 1]
     
-    new_version = ".".join(str(p) for p in parts)
+    new_version = ".".join(str(p) for p in parts) + suffix
     pkg["version"] = new_version
     PKG_JSON.write_text(json.dumps(pkg, indent=4) + "\n", encoding="utf-8")
     
-    print(f"  [VERSION] {pkg['version']} → {new_version}")
+    print(f"  [VERSION] {old_version} → {new_version}")
     return new_version
 
 
@@ -74,7 +80,7 @@ def stage_app(version):
     """
     Stage the app source into the electron-launcher directory structure
     so electron-builder can package it. Mirrors the resources/app/ layout
-    that the working HALT-v1.0.01 uses.
+    that the production build uses.
     """
     stage_dir = ELECTRON_DIR / "app-stage"
     
@@ -340,6 +346,63 @@ def upload_dev_assets():
     return True
 
 
+def git_release(version):
+    """Commit all changes, tag with version, and push to origin."""
+    print(f"  [GIT]     Committing and tagging v{version}...")
+    
+    def run_git(*cmd):
+        result = subprocess.run(
+            ["git"] + list(cmd),
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"  [ERROR]   git {' '.join(cmd)} failed:")
+            print(f"            {result.stderr.strip()}")
+            return False
+        return True
+    
+    # Stage all changes
+    if not run_git("add", "-A"):
+        return False
+    print(f"            Staged all changes")
+    
+    # Check if there's anything to commit
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(REPO_ROOT), capture_output=True, text=True
+    )
+    if not status.stdout.strip():
+        print(f"  [SKIP]    Nothing to commit — working tree clean")
+    else:
+        if not run_git("commit", "-m", f"release: v{version}"):
+            return False
+        print(f"            Committed: release: v{version}")
+    
+    # Tag (delete existing tag first if needed)
+    tag = f"v{version}"
+    subprocess.run(
+        ["git", "tag", "-d", tag],
+        cwd=str(REPO_ROOT), capture_output=True, text=True
+    )  # ignore errors — tag may not exist
+    if not run_git("tag", "-a", tag, "-m", f"Release {tag}"):
+        return False
+    print(f"            Tagged: {tag}")
+    
+    # Push commit + tags
+    if not run_git("push", "origin", "main"):
+        return False
+    print(f"            Pushed to origin/main")
+    
+    if not run_git("push", "origin", tag):
+        return False
+    print(f"            Pushed tag {tag}")
+    
+    print(f"  [OK]      Git release complete")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="HALT Build & Deploy Pipeline")
     parser.add_argument("--bump", choices=["patch", "minor", "major"], default="patch",
@@ -348,11 +411,17 @@ def main():
                         help="Skip version bump")
     parser.add_argument("--deploy", action="store_true",
                         help="Upload to Cloudflare R2 after building")
+    parser.add_argument("--release", action="store_true",
+                        help="Full release: build → zip → git commit+tag+push → R2 upload")
     parser.add_argument("--zip-only", action="store_true",
-                        help="Skip electron build, just zip existing HALT-v1.0.01 and optionally deploy")
+                        help="Skip electron build, just zip existing build folder and optionally deploy")
     parser.add_argument("--upload-assets", action="store_true",
                         help="Zip and upload models/ + runtime/ to R2 for dev/setup.py")
     args = parser.parse_args()
+    
+    # --release implies --deploy
+    if args.release:
+        args.deploy = True
     
     banner()
     
@@ -370,10 +439,18 @@ def main():
     
     # ── Build or Zip-Only ─────────────────────────────────────────────────
     if args.zip_only:
-        # Use existing built distribution
-        existing = REPO_ROOT / "HALT-v1.0.01"
-        if not existing.exists():
-            print(f"  [ERROR]   {existing} not found")
+        # Use existing built distribution — try versioned folder, then fallback
+        candidates = [
+            REPO_ROOT / f"HALT-v{version}",
+            REPO_ROOT / "HALT-v1.0.01",  # legacy folder name
+        ]
+        existing = None
+        for c in candidates:
+            if c.exists():
+                existing = c
+                break
+        if existing is None:
+            print(f"  [ERROR]   No build folder found. Tried: {[str(c) for c in candidates]}")
             sys.exit(1)
         print(f"  [SKIP]    Using existing build: {existing}")
         source_dir = existing
@@ -388,6 +465,13 @@ def main():
     # ── Zip ───────────────────────────────────────────────────────────────
     zip_path = zip_distribution(source_dir, version)
     
+    # ── Git Release ───────────────────────────────────────────────────────
+    if args.release:
+        print()
+        if not git_release(version):
+            print("  [ABORT]   Git release failed — skipping R2 upload")
+            sys.exit(1)
+    
     # ── Deploy ────────────────────────────────────────────────────────────
     if args.deploy:
         print()
@@ -400,9 +484,20 @@ def main():
         print(f"            python {Path(__file__).name} --zip-only --no-bump --deploy")
     
     # ── Done ──────────────────────────────────────────────────────────────
+    steps = []
+    if not args.zip_only:
+        steps.append("built")
+    steps.append("zipped")
+    if args.release:
+        steps.append("tagged")
+        steps.append("pushed")
+    if args.deploy:
+        steps.append("deployed")
+    
     print()
     print("  ╔═══════════════════════════════════════╗")
-    print(f"  ║   HALT v{version} — Complete" + " " * (24 - len(version)) + "║")
+    print(f"  ║   HALT v{version}" + " " * (30 - len(version)) + "║")
+    print(f"  ║   {' → '.join(steps)}" + " " * max(1, 36 - len(' → '.join(steps))) + "║")
     print("  ╚═══════════════════════════════════════╝")
     print()
 
