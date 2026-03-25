@@ -3,7 +3,6 @@ STT — POST /stt/listen
 Faster-Whisper speech-to-text. Accepts audio file upload, returns transcript.
 """
 import os
-import io
 import logging
 import tempfile
 from pathlib import Path
@@ -13,10 +12,11 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 logger = logging.getLogger("triage.stt")
 router = APIRouter(tags=["stt"])
 
-MODELS_DIR  = Path(os.environ.get("EVE_MODELS_DIR", Path(__file__).resolve().parent.parent.parent / "models"))
+MODELS_DIR = Path(os.environ.get("EVE_MODELS_DIR", Path(__file__).resolve().parent.parent.parent / "models"))
 WHISPER_DIR = MODELS_DIR / "faster-whisper-base"
 
 _whisper = None
+
 
 def _get_whisper():
     global _whisper
@@ -24,6 +24,7 @@ def _get_whisper():
         return _whisper
     try:
         from faster_whisper import WhisperModel
+
         model_id = str(WHISPER_DIR) if WHISPER_DIR.exists() else "base"
         logger.info(f"Loading Whisper from {model_id} …")
         _whisper = WhisperModel(model_id, device="cpu", compute_type="float32")
@@ -39,6 +40,7 @@ async def stt_health():
     w = _get_whisper()
     return {"loaded": w is not None, "model_dir": str(WHISPER_DIR), "local": WHISPER_DIR.exists()}
 
+
 @router.post("/stt/listen")
 async def listen(audio: UploadFile = File(...), language: Optional[str] = None):
     w = _get_whisper()
@@ -53,11 +55,9 @@ async def listen(audio: UploadFile = File(...), language: Optional[str] = None):
         tmp_path = tmp.name
 
     try:
-        segments, info = w.transcribe(tmp_path, language=language, beam_size=5,
-                                       vad_filter=True, word_timestamps=False)
+        segments, info = w.transcribe(tmp_path, language=language, beam_size=5, vad_filter=True, word_timestamps=False)
         text = " ".join(seg.text.strip() for seg in segments)
-        return {"text": text, "language": info.language,
-                "language_probability": round(info.language_probability, 3)}
+        return {"text": text, "language": info.language, "language_probability": round(info.language_probability, 3)}
     except Exception as e:
         logger.error(f"Transcription error: {e}")
         raise HTTPException(500, f"Transcription failed: {e}")

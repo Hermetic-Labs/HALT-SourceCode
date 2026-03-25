@@ -1,5 +1,16 @@
 """
-Inventory — items + locations CRUD, consume, restock.
+Inventory — medical supply tracking with auto-alerting.
+
+Tracks consumable quantities across named locations (e.g. "Main Supply Room",
+"Ward A Cabinet"). When an item drops below its minimum threshold, an alert
+is automatically broadcast to all connected mesh clients. When depleted to
+zero, a red emergency alert fires.
+
+Key features:
+  - Multi-location support with cascade delete (items reassign to loc-1).
+  - Consume/restock with audit trail via storage.log_activity().
+  - Default inventory seeds with combat-relevant medical supplies (TXA,
+    CAT tourniquets, ketamine, chest seals) and their field alternatives.
 """
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -13,6 +24,7 @@ class InventoryLocation(BaseModel):
     id: str = "loc-1"
     name: str = "Main Supply Room"
 
+
 class InventoryItem(BaseModel):
     id: str
     name: str
@@ -22,23 +34,66 @@ class InventoryItem(BaseModel):
     alternatives: list[str]
     locationId: str = "loc-1"
 
+
 class InventoryRestock(BaseModel):
     amount: int
 
 
 DEFAULT_INVENTORY = [
-    {"id": "inv-txa", "name": "TXA (Tranexamic Acid)", "quantity": 10, "minThreshold": 3,
-     "category": "Medication", "alternatives": ["Direct Pressure", "Tourniquet", "Hemostatic Dressing"], "locationId": "loc-1"},
-    {"id": "inv-gauze", "name": "Combat Gauze", "quantity": 50, "minThreshold": 10,
-     "category": "Bandage", "alternatives": ["Standard Gauze", "Clean Cloth"], "locationId": "loc-1"},
-    {"id": "inv-tourniquet", "name": "CAT Tourniquet", "quantity": 25, "minThreshold": 5,
-     "category": "Equipment", "alternatives": ["Improvised Tourniquet (Cravat + Windlass)"], "locationId": "loc-1"},
-    {"id": "inv-iv-fluid", "name": "IV Fluids (Lactated Ringers 1L)", "quantity": 20, "minThreshold": 5,
-     "category": "Fluids", "alternatives": ["Oral Rehydration Salts (if patient is conscious/can swallow)"], "locationId": "loc-1"},
-    {"id": "inv-ketamine", "name": "Ketamine (500mg vial)", "quantity": 15, "minThreshold": 5,
-     "category": "Medication", "alternatives": ["Fentanyl Lozenge (OTFC)", "Morphine Auto-Injector"], "locationId": "loc-1"},
-    {"id": "inv-chest-seal", "name": "Vented Chest Seal", "quantity": 30, "minThreshold": 8,
-     "category": "Equipment", "alternatives": ["Improvised 3-sided occlusive dressing (plastic + tape)"], "locationId": "loc-1"},
+    {
+        "id": "inv-txa",
+        "name": "TXA (Tranexamic Acid)",
+        "quantity": 10,
+        "minThreshold": 3,
+        "category": "Medication",
+        "alternatives": ["Direct Pressure", "Tourniquet", "Hemostatic Dressing"],
+        "locationId": "loc-1",
+    },
+    {
+        "id": "inv-gauze",
+        "name": "Combat Gauze",
+        "quantity": 50,
+        "minThreshold": 10,
+        "category": "Bandage",
+        "alternatives": ["Standard Gauze", "Clean Cloth"],
+        "locationId": "loc-1",
+    },
+    {
+        "id": "inv-tourniquet",
+        "name": "CAT Tourniquet",
+        "quantity": 25,
+        "minThreshold": 5,
+        "category": "Equipment",
+        "alternatives": ["Improvised Tourniquet (Cravat + Windlass)"],
+        "locationId": "loc-1",
+    },
+    {
+        "id": "inv-iv-fluid",
+        "name": "IV Fluids (Lactated Ringers 1L)",
+        "quantity": 20,
+        "minThreshold": 5,
+        "category": "Fluids",
+        "alternatives": ["Oral Rehydration Salts (if patient is conscious/can swallow)"],
+        "locationId": "loc-1",
+    },
+    {
+        "id": "inv-ketamine",
+        "name": "Ketamine (500mg vial)",
+        "quantity": 15,
+        "minThreshold": 5,
+        "category": "Medication",
+        "alternatives": ["Fentanyl Lozenge (OTFC)", "Morphine Auto-Injector"],
+        "locationId": "loc-1",
+    },
+    {
+        "id": "inv-chest-seal",
+        "name": "Vented Chest Seal",
+        "quantity": 30,
+        "minThreshold": 8,
+        "category": "Equipment",
+        "alternatives": ["Improvised 3-sided occlusive dressing (plastic + tape)"],
+        "locationId": "loc-1",
+    },
 ]
 
 
@@ -146,9 +201,12 @@ def add_inventory_item(item: InventoryItem):
 
 
 @router.patch("/api/inventory/{id}/consume", response_model=InventoryItem)
-async def consume_inventory(id: str, restock: InventoryRestock, modified_by: str = Query("", description="Who is consuming")):
+async def consume_inventory(
+    id: str, restock: InventoryRestock, modified_by: str = Query("", description="Who is consuming")
+):
     """Consume an inventory item by the specified amount."""
     from datetime import datetime
+
     inv = load_inventory()
     target = None
     for item in inv:
@@ -175,6 +233,7 @@ async def consume_inventory(id: str, restock: InventoryRestock, modified_by: str
         try:
             from routes.mesh import broadcast_mesh
             import json as _json
+
             name = target.get("name", id)
             if qty == 0:
                 # EMERGENCY — item is depleted
@@ -193,14 +252,16 @@ async def consume_inventory(id: str, restock: InventoryRestock, modified_by: str
                 # Log to chat
                 cp = chat_path()
                 messages = _json.loads(cp.read_text(encoding="utf-8")) if cp.exists() else []
-                messages.append({
-                    "id": f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}",
-                    "sender_name": "System",
-                    "sender_role": "system",
-                    "message": f"🚨 SUPPLY EMERGENCY: {name} at {loc_name} is DEPLETED — consider alternatives",
-                    "target_name": "",
-                    "timestamp": datetime.now().isoformat(),
-                })
+                messages.append(
+                    {
+                        "id": f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}",
+                        "sender_name": "System",
+                        "sender_role": "system",
+                        "message": f"🚨 SUPPLY EMERGENCY: {name} at {loc_name} is DEPLETED — consider alternatives",
+                        "target_name": "",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
                 if len(messages) > 500:
                     messages = messages[-500:]
                 write_json(cp, messages)
@@ -217,14 +278,16 @@ async def consume_inventory(id: str, restock: InventoryRestock, modified_by: str
                 # Log to chat
                 cp = chat_path()
                 messages = _json.loads(cp.read_text(encoding="utf-8")) if cp.exists() else []
-                messages.append({
-                    "id": f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}",
-                    "sender_name": "System",
-                    "sender_role": "system",
-                    "message": f"⚠️ SUPPLY ALERT: {name} at {loc_name} — {qty} remaining (threshold: {min_t})",
-                    "target_name": "",
-                    "timestamp": datetime.now().isoformat(),
-                })
+                messages.append(
+                    {
+                        "id": f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}",
+                        "sender_name": "System",
+                        "sender_role": "system",
+                        "message": f"⚠️ SUPPLY ALERT: {name} at {loc_name} — {qty} remaining (threshold: {min_t})",
+                        "target_name": "",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
                 if len(messages) > 500:
                     messages = messages[-500:]
                 write_json(cp, messages)
@@ -235,9 +298,12 @@ async def consume_inventory(id: str, restock: InventoryRestock, modified_by: str
 
 
 @router.patch("/api/inventory/{id}/restock", response_model=InventoryItem)
-async def restock_inventory(id: str, restock: InventoryRestock, modified_by: str = Query("", description="Who is restocking")):
+async def restock_inventory(
+    id: str, restock: InventoryRestock, modified_by: str = Query("", description="Who is restocking")
+):
     """Restock an inventory item by the specified amount."""
     from datetime import datetime
+
     inv = load_inventory()
     target = None
     for item in inv:
@@ -273,6 +339,7 @@ def get_inventory_activity(limit: int = 50):
     """Return recent inventory activity (consume/restock log)."""
     from storage import activity_path
     import json as _json
+
     p = activity_path()
     if not p.exists():
         return []
@@ -281,10 +348,7 @@ def get_inventory_activity(limit: int = 50):
         if not isinstance(entries, list):
             return []
         # Filter to inventory-related actions and return most recent first
-        inv_actions = [
-            e for e in entries
-            if any(kw in (e.get("action", "")) for kw in ("consumed", "restocked"))
-        ]
+        inv_actions = [e for e in entries if any(kw in (e.get("action", "")) for kw in ("consumed", "restocked"))]
         return list(reversed(inv_actions[-limit:]))
     except Exception:
         return []
@@ -295,6 +359,7 @@ def clear_inventory_activity():
     """Remove inventory-related entries (consumed/restocked) from the activity log."""
     from storage import activity_path
     import json as _json
+
     p = activity_path()
     if not p.exists():
         return {"status": "ok", "removed": 0}

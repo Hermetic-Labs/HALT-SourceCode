@@ -11,11 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
-import shutil
 import tarfile
-import threading
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -35,10 +31,7 @@ PACKS = {
     "voice": {
         "files": ["kokoro-v1.0.onnx", "voices-v1.0.bin"],
         "size_mb": 89,
-        "check": lambda: (
-            (MODELS_DIR / "kokoro-v1.0.onnx").exists()
-            and (MODELS_DIR / "voices-v1.0.bin").exists()
-        ),
+        "check": lambda: ((MODELS_DIR / "kokoro-v1.0.onnx").exists() and (MODELS_DIR / "voices-v1.0.bin").exists()),
     },
     "stt": {
         "files": ["faster-whisper-base/"],
@@ -188,6 +181,7 @@ async def _download_pack(pack_id: str, url: str):
 
 # ── Schemas ──────────────────────────────────────────────────────────────────────
 
+
 class DownloadRequest(BaseModel):
     pack: str
     url: str
@@ -204,6 +198,7 @@ class PackStatus(BaseModel):
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────────
+
 
 @router.get("/api/distribution/status")
 async def get_status():
@@ -241,6 +236,7 @@ async def download_pack(req: DownloadRequest):
 @router.get("/api/distribution/progress")
 async def progress_stream():
     """SSE endpoint streaming download progress."""
+
     async def event_generator():
         global _progress_queue
 
@@ -249,13 +245,13 @@ async def progress_stream():
             if _progress_queue is not None:
                 break
             if _active_download.get("phase") == "complete":
-                yield "data: {\"phase\": \"complete\"}\n\n"
+                yield 'data: {"phase": "complete"}\n\n'
                 return
             await asyncio.sleep(0.1)
             yield ": keepalive\n\n"
 
         if _progress_queue is None:
-            yield "data: {\"phase\": \"idle\"}\n\n"
+            yield 'data: {"phase": "idle"}\n\n'
             return
 
         # Read from the shared queue that the download writes to

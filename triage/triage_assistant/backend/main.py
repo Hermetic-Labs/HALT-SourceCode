@@ -1,7 +1,13 @@
 """
-Triage — Standalone AI Runtime
-Runs on port 7777. Start from: Triage/backend/
-  uvicorn main:app --host 0.0.0.0 --port 7777
+Triage — Standalone AI runtime for field deployment.
+
+Separate from the main HALT API — this is the lighter-weight triage-only
+backend that ships with the standalone Triage Assistant app. Includes AI
+inference (MedGemma), TTS (Kokoro), STT (Whisper), and image analysis,
+but not the full patient management or mesh networking stack.
+
+Pre-warms Kokoro TTS in a background thread at startup to eliminate
+first-generation latency.
 """
 import os
 import logging
@@ -36,9 +42,11 @@ if _frontend.is_dir():
 else:
     logger.error(f"Frontend dir NOT FOUND: {_frontend}")
 
+
 @app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="/frontend")
+
 
 @app.on_event("startup")
 async def startup():
@@ -47,7 +55,9 @@ async def startup():
     logger.info(f"Models     : {_root / 'models'}")
 
     import threading
+
     # Pre-warm Kokoro (TTS) in a parallel background thread
     from routes.tts import _get_kokoro
+
     threading.Thread(target=_get_kokoro, daemon=True, name="warmup-tts").start()
     logger.info("Warmup thread started (TTS).")

@@ -1,9 +1,15 @@
 """
-Shared storage layer — encryption, read/write JSON, path helpers.
-Used by all route modules for patient, ward, inventory, roster, task, and chat persistence.
+Shared storage layer — JSON persistence with optional AES-256 encryption.
+
+Every route module reads and writes data through read_json() / write_json()
+so encryption, path conventions, and directory setup happen in one place.
+Patient files (PAT-*.json) are encrypted with Fernet if the cryptography
+package is installed; other data files (wards, inventory, roster) are stored
+as plain JSON for easier debugging.
+
+Keys are auto-generated and stored in DATA_DIR/.key on first use.
 """
 import json
-import os
 from pathlib import Path
 from config import DATA_DIR as _CFG_DATA_DIR
 
@@ -17,10 +23,12 @@ KEY_FILE = DATA_DIR / ".key"
 # ── Encryption (AES-256 via Fernet) ────────────────────────────────────────────
 try:
     from cryptography.fernet import Fernet
+
     _CRYPTO_AVAILABLE = True
 except ImportError:
     _CRYPTO_AVAILABLE = False
     Fernet = None  # type: ignore
+
 
 def _get_fernet():
     """Load or generate the encryption key. Returns None if cryptography not installed."""
@@ -33,9 +41,11 @@ def _get_fernet():
         KEY_FILE.write_bytes(key)
     return Fernet(key)
 
+
 _fernet = _get_fernet()
 
 # ── JSON helpers ───────────────────────────────────────────────────────────────
+
 
 def read_json(path: Path) -> dict:
     raw = path.read_bytes()
@@ -47,6 +57,7 @@ def read_json(path: Path) -> dict:
             pass  # Fall through to plaintext
     return json.loads(raw)
 
+
 def write_json(path: Path, data: dict) -> None:
     payload = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
     if _fernet and path.name.startswith("PAT-"):
@@ -54,34 +65,45 @@ def write_json(path: Path, data: dict) -> None:
     else:
         path.write_bytes(payload)
 
+
 # ── Path helpers ───────────────────────────────────────────────────────────────
+
 
 def patient_path(patient_id: str) -> Path:
     return DATA_DIR / f"{patient_id}.json"
 
+
 def ward_config_path() -> Path:
     return DATA_DIR / "_ward_config.json"
+
 
 def wards_path() -> Path:
     return DATA_DIR / "_wards.json"
 
+
 def inventory_path() -> Path:
     return DATA_DIR / "_inventory.json"
+
 
 def inventory_locations_path() -> Path:
     return DATA_DIR / "_inventory_locations.json"
 
+
 def roster_path() -> Path:
     return DATA_DIR / "_roster.json"
+
 
 def tasks_path() -> Path:
     return DATA_DIR / "_tasks.json"
 
+
 def chat_path() -> Path:
     return DATA_DIR / "_chat.json"
 
+
 def activity_path() -> Path:
     return DATA_DIR / "_activity.json"
+
 
 # ── Directories ────────────────────────────────────────────────────────────────
 
@@ -93,26 +115,31 @@ THREADS_DIR.mkdir(exist_ok=True)
 
 # ── Thread helpers ─────────────────────────────────────────────────────────────
 
+
 def thread_path(id_a: str, id_b: str) -> Path:
     """DM thread file for a pair of members. IDs sorted alphabetically for consistency."""
     pair = sorted([id_a, id_b])
     return THREADS_DIR / f"{pair[0]}--{pair[1]}.json"
 
+
 # ── Activity log ───────────────────────────────────────────────────────────────
+
 
 def log_activity(who: str, action: str, target: str = ""):
     """Append an entry to the activity log. Fire-and-forget."""
     from datetime import datetime
+
     p = activity_path()
     entries = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
-    entries.append({
-        "who": who,
-        "action": action,
-        "target": target,
-        "timestamp": datetime.now().isoformat(),
-    })
+    entries.append(
+        {
+            "who": who,
+            "action": action,
+            "target": target,
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
     # Keep last 1000 entries
     if len(entries) > 1000:
         entries = entries[-1000:]
     write_json(p, entries)
-

@@ -1,5 +1,10 @@
 """
 Wards — CRUD for ward layout configurations.
+
+Each ward defines a name, column count, and list of room IDs (e.g. R01–R20).
+Patients are assigned to wards + rooms during intake. The ward board UI
+renders these as a grid for quick visual triage status at a glance.
+Legacy migration: single ward_config.json → multi-ward _wards.json.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field

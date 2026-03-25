@@ -16,10 +16,10 @@ from pydantic import BaseModel
 logger = logging.getLogger("triage.image")
 router = APIRouter(tags=["image"])
 
-MODELS_DIR = Path(os.environ.get("EVE_MODELS_DIR",
-                  Path(__file__).resolve().parent.parent.parent / "models"))
+MODELS_DIR = Path(os.environ.get("EVE_MODELS_DIR", Path(__file__).resolve().parent.parent.parent / "models"))
 
 _pipeline = None
+
 
 def _get_pipeline():
     global _pipeline
@@ -34,25 +34,24 @@ def _get_pipeline():
 
     try:
         from stable_diffusion_cpp import StableDiffusion
+
         logger.info(f"Loading SD C++ backend from: {model_path}")
-        
+
         # Load the single indestructible GGUF file
         # n_threads uses CPU limits
-        _pipeline = StableDiffusion(
-            model_path=str(model_path),
-            n_threads=os.cpu_count() or 4,
-            rng_type="STD_DEFAULT"
-        )
-        
-        logger.info(f"SD C++ pipeline ready.")
+        _pipeline = StableDiffusion(model_path=str(model_path), n_threads=os.cpu_count() or 4, rng_type="STD_DEFAULT")
+
+        logger.info("SD C++ pipeline ready.")
         return _pipeline
     except Exception as e:
         logger.error(f"Image pipeline load error: {e}")
         return None
 
+
 class ImageRequest(BaseModel):
     prompt: str
     steps: int = 4
+
 
 @router.get("/health")
 async def image_health():
@@ -60,8 +59,9 @@ async def image_health():
     return {
         "loaded": _pipeline is not None,
         "model": str(model_path) if model_path else "Missing",
-        "exists": model_path is not None
+        "exists": model_path is not None,
     }
+
 
 @router.post("/generate")
 async def generate_image(req: ImageRequest):
@@ -71,13 +71,14 @@ async def generate_image(req: ImageRequest):
 
     loop = asyncio.get_event_loop()
     try:
+
         def _run():
             styled = (
                 f"{req.prompt.strip()}, black and white medical illustration, "
                 "clean line art, instructional diagram, anatomical textbook style, "
                 "step-by-step procedure, high contrast, minimal"
             )
-            
+
             neg = "color, realistic, photo, messy"
 
             # stable-diffusion.cpp interface
@@ -88,7 +89,7 @@ async def generate_image(req: ImageRequest):
                 sample_steps=max(1, min(req.steps, 8)),
                 cfg_scale=1.5,
             )
-            
+
             image = images[0]
 
             # Force true grayscale

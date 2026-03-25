@@ -1,5 +1,10 @@
 """
-Roster — team member CRUD + avatar upload.
+Roster — team member management with skills tracking and avatar upload.
+
+Tracks medical team members (leader, medic, responder) with skill tags
+(IV, splinting, airway) and online status. Members start as 'pending'
+on roster add and transition to 'connected' when they join via the
+mesh WebSocket. Avatars are stored as .webp files on disk.
 """
 import json
 from datetime import datetime
@@ -16,10 +21,10 @@ router = APIRouter(tags=["roster"])
 class RosterMember(BaseModel):
     id: str = ""
     name: str
-    role: str = "responder"          # leader | medic | responder
-    skills: list[str] = []           # e.g. ["IV", "splinting", "airway"]
-    status: str = "available"        # available | assigned | offline | injured
-    assigned_task: str = ""          # task ID if assigned
+    role: str = "responder"  # leader | medic | responder
+    skills: list[str] = []  # e.g. ["IV", "splinting", "airway"]
+    status: str = "available"  # available | assigned | offline | injured
+    assigned_task: str = ""  # task ID if assigned
     joined_at: str = ""
     notes: str = ""
 
@@ -98,6 +103,7 @@ def delete_roster_member(member_id: str):
 
 
 # ── Avatar Upload/Retrieval ────────────────────────────────────────────────────
+
 
 @router.post("/api/roster/{member_id}/avatar")
 async def upload_avatar(member_id: str, file: UploadFile = File(...)):

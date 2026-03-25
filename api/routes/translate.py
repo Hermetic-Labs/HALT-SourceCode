@@ -5,7 +5,6 @@ Model loads lazily on first request from MODELS_DIR/nllb-200-distilled-600M-ct2/
 """
 import logging
 import asyncio
-from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel
 from config import MODELS_DIR
@@ -22,17 +21,48 @@ MODEL_DIR = MODELS_DIR / "nllb-200-distilled-600M-ct2"
 
 # Map UI language codes → NLLB BCP-47 codes
 NLLB_LANG_MAP = {
-    "en": "eng_Latn", "es": "spa_Latn", "fr": "fra_Latn", "ar": "arb_Arab",
-    "bn": "ben_Beng", "de": "deu_Latn", "he": "heb_Hebr", "hi": "hin_Deva",
-    "id": "ind_Latn", "it": "ita_Latn", "ja": "jpn_Jpan", "ko": "kor_Hang",
-    "la": "lat_Latn", "nl": "nld_Latn", "pl": "pol_Latn", "pt": "por_Latn",
-    "ru": "rus_Cyrl", "sw": "swh_Latn", "th": "tha_Thai", "tl": "tgl_Latn",
-    "tr": "tur_Latn", "ur": "urd_Arab", "vi": "vie_Latn", "zh": "zho_Hans",
-    "am": "amh_Ethi", "ha": "hau_Latn", "ig": "ibo_Latn", "jw": "jav_Latn",
-    "ku": "ckb_Arab", "mg": "plt_Latn", "mr": "mar_Deva", "my": "mya_Mymr",
-    "ps": "pbt_Arab", "so": "som_Latn", "ta": "tam_Taml", "te": "tel_Telu",
-    "uk": "ukr_Cyrl", "yo": "yor_Latn", "zu": "zul_Latn", "xh": "xho_Latn",
-    "fa": "pes_Arab", "km": "khm_Khmr",
+    "en": "eng_Latn",
+    "es": "spa_Latn",
+    "fr": "fra_Latn",
+    "ar": "arb_Arab",
+    "bn": "ben_Beng",
+    "de": "deu_Latn",
+    "he": "heb_Hebr",
+    "hi": "hin_Deva",
+    "id": "ind_Latn",
+    "it": "ita_Latn",
+    "ja": "jpn_Jpan",
+    "ko": "kor_Hang",
+    "la": "lat_Latn",
+    "nl": "nld_Latn",
+    "pl": "pol_Latn",
+    "pt": "por_Latn",
+    "ru": "rus_Cyrl",
+    "sw": "swh_Latn",
+    "th": "tha_Thai",
+    "tl": "tgl_Latn",
+    "tr": "tur_Latn",
+    "ur": "urd_Arab",
+    "vi": "vie_Latn",
+    "zh": "zho_Hans",
+    "am": "amh_Ethi",
+    "ha": "hau_Latn",
+    "ig": "ibo_Latn",
+    "jw": "jav_Latn",
+    "ku": "ckb_Arab",
+    "mg": "plt_Latn",
+    "mr": "mar_Deva",
+    "my": "mya_Mymr",
+    "ps": "pbt_Arab",
+    "so": "som_Latn",
+    "ta": "tam_Taml",
+    "te": "tel_Telu",
+    "uk": "ukr_Cyrl",
+    "yo": "yor_Latn",
+    "zu": "zul_Latn",
+    "xh": "xho_Latn",
+    "fa": "pes_Arab",
+    "km": "khm_Khmr",
 }
 
 
@@ -109,6 +139,7 @@ def _translate(text: str, source: str, target: str) -> str:
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
+
 class TranslateRequest(BaseModel):
     text: str
     source: str = "en"
@@ -122,6 +153,7 @@ class TranslateBatchRequest(BaseModel):
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+
 
 @router.post("/api/translate")
 async def translate_text(req: TranslateRequest):

@@ -24,6 +24,12 @@ runtime/
 # ── Built distributions (Cloudflare R2, not Git) ─────────────────────────────
 builds/
 HALT-v1.0.01/
+HALT-*.zip
+*.zip
+
+# ── Electron build artifacts (produced by electron-builder) ──────────────────
+dev/electron-launcher/dist/
+dev/electron-launcher/app-stage/
 
 # ── Runtime user data + secrets (never committed) ────────────────────────────
 patients/

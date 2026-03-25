@@ -1,5 +1,10 @@
 """
-Tasks — task board CRUD + claim.
+Tasks — field task board with self-service claiming.
+
+Provides a simple kanban-style task flow: open → assigned → in_progress → done.
+Tasks have priority levels (critical/urgent/normal/low), due hints for urgency
+("ASAP", "within 1hr"), and category tags (medical, logistics, security, comms).
+Volunteers can self-claim open tasks without leader intervention.
 """
 import json
 from datetime import datetime
@@ -17,16 +22,16 @@ class Task(BaseModel):
     id: str = ""
     title: str
     description: str = ""
-    priority: str = "normal"         # critical | urgent | normal | low
-    status: str = "open"             # open | assigned | in_progress | done
-    assignee_id: str = ""            # roster member ID
+    priority: str = "normal"  # critical | urgent | normal | low
+    status: str = "open"  # open | assigned | in_progress | done
+    assignee_id: str = ""  # roster member ID
     assignee_name: str = ""
     created_by: str = ""
     created_at: str = ""
     updated_at: str = ""
-    due_hint: str = ""               # e.g. "ASAP", "within 1hr", "when able"
-    category: str = ""               # e.g. "medical", "logistics", "security", "comms"
-    escalate_at: str = ""            # ISO timestamp when task becomes critical if unclaimed
+    due_hint: str = ""  # e.g. "ASAP", "within 1hr", "when able"
+    category: str = ""  # e.g. "medical", "logistics", "security", "comms"
+    escalate_at: str = ""  # ISO timestamp when task becomes critical if unclaimed
 
 
 PRIORITY_ORDER = {"critical": 0, "urgent": 1, "normal": 2, "low": 3}

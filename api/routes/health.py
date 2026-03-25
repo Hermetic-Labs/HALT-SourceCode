@@ -1,14 +1,15 @@
-"""Health — GET /health"""
+"""Health check — GET /health. Reports model readiness (GGUF, ONNX, Whisper) for the frontend setup wizard."""
 from fastapi import APIRouter
 
 from config import MODELS_DIR
 
 router = APIRouter(tags=["health"])
 
+
 @router.get("/health")
 async def health():
-    gguf  = list(MODELS_DIR.glob("*.gguf"))
-    onnx  = list(MODELS_DIR.glob("*.onnx"))
+    gguf = list(MODELS_DIR.glob("*.gguf"))
+    onnx = list(MODELS_DIR.glob("*.onnx"))
     whisper = (MODELS_DIR / "faster-whisper-base").exists()
     return {
         "status": "ok",

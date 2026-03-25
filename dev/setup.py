@@ -13,7 +13,6 @@ Usage:
 
 import os
 import sys
-import shutil
 import zipfile
 import argparse
 import threading
@@ -104,9 +103,9 @@ def download_asset(s3, name):
     try:
         head = s3.head_object(Bucket=R2_BUCKET, Key=info["r2_key"])
         total_size = head["ContentLength"]
-    except Exception as e:
+    except Exception:
         print(f"  [ERROR]   Asset not found on R2: {info['r2_key']}")
-        print(f"            Upload assets first: python dev/build_and_deploy.py --upload-assets")
+        print("            Upload assets first: python dev/build_and_deploy.py --upload-assets")
         return False
 
     # Download with progress
@@ -117,8 +116,8 @@ def download_asset(s3, name):
         with lock:
             seen[0] += bytes_amount
             pct = (seen[0] / total_size) * 100
-            mb = seen[0] / (1024 ** 2)
-            total_mb = total_size / (1024 ** 2)
+            mb = seen[0] / (1024**2)
+            total_mb = total_size / (1024**2)
             sys.stdout.write(f"\r            {pct:.0f}% ({mb:.0f} / {total_mb:.0f} MB)")
             sys.stdout.flush()
 
@@ -133,7 +132,7 @@ def download_asset(s3, name):
     print(f"  [UNZIP]   Extracting to {name}/...")
     try:
         info["dest"].mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(str(zip_path), 'r') as zf:
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
             zf.extractall(str(info["dest"]))
         print(f"  [OK]      {name}/ ready")
     except Exception as e:

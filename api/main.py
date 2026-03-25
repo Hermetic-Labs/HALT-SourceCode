@@ -1,6 +1,13 @@
 """
-FastAPI backend for Medic Info — patient record persistence + mesh networking.
-Slim entrypoint: app creation, CORS, router includes, model warmup, and static frontend serving.
+Medic Info API — FastAPI entrypoint.
+
+This is the slim bootstrap file: CORS setup, router wiring, lifespan hooks,
+and static frontend serving. All domain logic lives in the route modules.
+
+Static serving: when a pre-built Vite PWA exists at viewer/dist/, it's mounted
+here so the entire system (API + frontend) runs as a single process. SPA
+fallback ensures client-side routing works — any unmatched GET returns
+index.html. In dev mode Vite runs separately on port 5173.
 """
 import asyncio
 import logging
@@ -21,6 +28,7 @@ _DIST_DIR = _API_DIR.parent / "viewer" / "dist"
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -94,5 +102,5 @@ if _DIST_DIR.is_dir():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=7777, reload=True)
 
+    uvicorn.run("main:app", host="0.0.0.0", port=7777, reload=True)

@@ -1,5 +1,19 @@
 """
-Mesh Network — real-time WebSocket sync, QR onboarding, alerts, emergency, chat.
+Mesh Network — real-time peer-to-peer sync over local WiFi.
+
+Designed for field triage where there's no internet — a single device runs
+as the "leader" (API host), and other devices connect over a WiFi hotspot.
+All state is ephemeral (in-memory dicts, no database) — if the leader goes
+down, clients detect the timeout and can promote a new leader via /promote.
+
+Five subsystems:
+  1. Client Registry  — Track who's connected, their role, and heartbeat.
+  2. WebSocket Hub    — Real-time bidirectional sync for patient updates,
+                        chat messages, alerts, and WebRTC call signaling.
+  3. Chat & Threads   — Broadcast + DM messaging persisted to disk.
+  4. Alerts & Emergency — Targeted or broadcast alerts with audio cues.
+  5. QR Onboarding    — Generate a QR code encoding the app URL + WiFi
+                        credentials for instant device onboarding.
 """
 import io
 import json
@@ -8,34 +22,37 @@ import base64
 import urllib.parse
 import time as _time
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel
 
-from storage import DATA_DIR, read_json, write_json, roster_path, tasks_path, chat_path, thread_path, log_activity
+from storage import DATA_DIR, read_json, write_json, roster_path, tasks_path, chat_path, thread_path
 
 router = APIRouter(tags=["mesh"])
 
 # In-memory mesh state (no DB dependency — survives nothing, by design)
-MESH_CLIENTS: Dict[str, dict] = {}           # client_id -> {role, name, connected_at, last_ping, ip}
-MESH_WS: Dict[str, WebSocket] = {}           # client_id -> active WebSocket
-MESH_LEADER_ID: Optional[str] = None         # who started this node
-CLIENT_TIMEOUT = 60                          # seconds before stale
-MAX_CLIENTS = 20                             # WiFi hotspot limit
+MESH_CLIENTS: dict[str, dict] = {}  # client_id -> {role, name, connected_at, last_ping, ip}
+MESH_WS: dict[str, WebSocket] = {}  # client_id -> active WebSocket
+MESH_LEADER_ID: Optional[str] = None  # who started this node
+CLIENT_TIMEOUT = 60  # seconds before stale
+MAX_CLIENTS = 20  # WiFi hotspot limit
 ROLE_PRIORITY = {"leader": 3, "medic": 2, "responder": 1}
 
 
 # ── Models ─────────────────────────────────────────────────────────────────────
 
+
 class MeshJoin(BaseModel):
     name: str = "Volunteer"
     role: str = "responder"
+
 
 class PromoteRequest(BaseModel):
     client_id: str
     name: str = "Unknown"
     role: str = "leader"
+
 
 class AlertRequest(BaseModel):
     target_name: str = ""
@@ -45,6 +62,7 @@ class AlertRequest(BaseModel):
     sound: str = "alert"
     alert_type: str = "alert"
 
+
 class EmergencyRequest(BaseModel):
     ward: str = ""
     bed: str = ""
@@ -52,9 +70,11 @@ class EmergencyRequest(BaseModel):
     sender_name: str = "System"
     notes: str = ""
 
+
 class AnnouncementRequest(BaseModel):
     message: str = ""
     sender_name: str = "System"
+
 
 class ChatMessage(BaseModel):
     sender_name: str = ""
@@ -63,12 +83,14 @@ class ChatMessage(BaseModel):
     target_name: str = ""
     reply_to: str = ""  # ID of message being replied to
 
+
 class ReactRequest(BaseModel):
     emoji: str = "👍"
     user: str = ""
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 async def broadcast_mesh(message: dict, exclude: str = None):
     """Send a message to all connected WebSocket clients."""
@@ -87,6 +109,7 @@ async def broadcast_mesh(message: dict, exclude: str = None):
 def _get_local_ip() -> str:
     """Best-effort LAN IP detection."""
     import socket
+
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -98,6 +121,7 @@ def _get_local_ip() -> str:
 
 
 # ── REST Endpoints ─────────────────────────────────────────────────────────────
+
 
 @router.get("/api/mesh/status")
 def mesh_status():
@@ -125,15 +149,17 @@ def mesh_clients():
     now = int(_time.time())
     result = []
     for cid, c in MESH_CLIENTS.items():
-        result.append({
-            "client_id": cid,
-            "name": c.get("name", "Unknown"),
-            "role": c.get("role", "responder"),
-            "connected_at": c["connected_at"],
-            "last_ping": c["last_ping"],
-            "stale": now - c["last_ping"] > CLIENT_TIMEOUT,
-            "online": cid in MESH_WS,
-        })
+        result.append(
+            {
+                "client_id": cid,
+                "name": c.get("name", "Unknown"),
+                "role": c.get("role", "responder"),
+                "connected_at": c["connected_at"],
+                "last_ping": c["last_ping"],
+                "stale": now - c["last_ping"] > CLIENT_TIMEOUT,
+                "online": cid in MESH_WS,
+            }
+        )
     result.sort(key=lambda x: x["connected_at"])
     return result
 
@@ -176,13 +202,15 @@ async def mesh_promote(req: PromoteRequest):
             if m["name"].lower().strip() == req.name.lower().strip():
                 m["role"] = "leader"
         write_json(rp, roster)
-    await broadcast_mesh({
-        "type": "new_leader",
-        "leader_id": req.client_id,
-        "leader_name": req.name,
-        "old_leader_id": old_leader,
-        "timestamp": int(_time.time()),
-    })
+    await broadcast_mesh(
+        {
+            "type": "new_leader",
+            "leader_id": req.client_id,
+            "leader_name": req.name,
+            "old_leader_id": old_leader,
+            "timestamp": int(_time.time()),
+        }
+    )
     return {"status": "promoted", "leader_id": req.client_id}
 
 
@@ -388,6 +416,7 @@ def mesh_qr(
 ):
     """Generate QR code for onboarding — encodes the app URL with optional name/role params."""
     import os
+
     frontend_port = os.environ.get("FRONTEND_PORT", "7779")
     local_ip = _get_local_ip()
     app_url = f"http://{local_ip}:{frontend_port}"
@@ -401,6 +430,7 @@ def mesh_qr(
 
     try:
         import qrcode as qr_lib
+
         qr = qr_lib.QRCode(version=1, box_size=10, border=4)
         qr.add_data(app_url)
         qr.make(fit=True)
@@ -417,6 +447,7 @@ def mesh_qr(
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
+
 
 @router.websocket("/ws/{client_id}")
 async def mesh_websocket(websocket: WebSocket, client_id: str):
@@ -440,21 +471,26 @@ async def mesh_websocket(websocket: WebSocket, client_id: str):
         patients = []
         for f in DATA_DIR.glob("PAT-*.json"):
             patients.append(json.loads(f.read_text(encoding="utf-8")))
-        await websocket.send_json({
-            "type": "sync",
-            "patients": patients,
-            "clients": len(MESH_CLIENTS),
-            "timestamp": now,
-        })
+        await websocket.send_json(
+            {
+                "type": "sync",
+                "patients": patients,
+                "clients": len(MESH_CLIENTS),
+                "timestamp": now,
+            }
+        )
     except Exception:
         pass
 
-    await broadcast_mesh({
-        "type": "client_joined",
-        "client_id": client_id,
-        "name": MESH_CLIENTS[client_id]["name"],
-        "clients": len(MESH_CLIENTS),
-    }, exclude=client_id)
+    await broadcast_mesh(
+        {
+            "type": "client_joined",
+            "client_id": client_id,
+            "name": MESH_CLIENTS[client_id]["name"],
+            "clients": len(MESH_CLIENTS),
+        },
+        exclude=client_id,
+    )
 
     try:
         while True:
@@ -466,12 +502,15 @@ async def mesh_websocket(websocket: WebSocket, client_id: str):
                 if msg_type == "ping":
                     await websocket.send_json({"type": "pong", "timestamp": int(_time.time())})
                     if client_id == MESH_LEADER_ID:
-                        await broadcast_mesh({
-                            "type": "leader_heartbeat",
-                            "leader_id": client_id,
-                            "leader_name": MESH_CLIENTS[client_id].get("name", "Unknown"),
-                            "timestamp": int(_time.time()),
-                        }, exclude=client_id)
+                        await broadcast_mesh(
+                            {
+                                "type": "leader_heartbeat",
+                                "leader_id": client_id,
+                                "leader_name": MESH_CLIENTS[client_id].get("name", "Unknown"),
+                                "timestamp": int(_time.time()),
+                            },
+                            exclude=client_id,
+                        )
 
                 elif msg_type == "set_name":
                     name_val = data.get("name", "Volunteer")
@@ -483,7 +522,10 @@ async def mesh_websocket(websocket: WebSocket, client_id: str):
                         roster = json.loads(rp.read_text(encoding="utf-8"))
                         matched = False
                         for i, m in enumerate(roster):
-                            if m["name"].lower().strip() == name_val.lower().strip() and m["status"] in ("pending", "offline"):
+                            if m["name"].lower().strip() == name_val.lower().strip() and m["status"] in (
+                                "pending",
+                                "offline",
+                            ):
                                 roster[i]["status"] = "connected"
                                 matched = True
                                 break
@@ -491,21 +533,34 @@ async def mesh_websocket(websocket: WebSocket, client_id: str):
                             write_json(rp, roster)
 
                 elif msg_type == "patient_updated":
-                    await broadcast_mesh({
-                        "type": "patient_updated",
-                        "patient": data.get("patient"),
-                        "source": client_id,
-                    }, exclude=client_id)
+                    await broadcast_mesh(
+                        {
+                            "type": "patient_updated",
+                            "patient": data.get("patient"),
+                            "source": client_id,
+                        },
+                        exclude=client_id,
+                    )
 
                 elif msg_type == "patient_created":
-                    await broadcast_mesh({
-                        "type": "patient_created",
-                        "patient": data.get("patient"),
-                        "source": client_id,
-                    }, exclude=client_id)
+                    await broadcast_mesh(
+                        {
+                            "type": "patient_created",
+                            "patient": data.get("patient"),
+                            "source": client_id,
+                        },
+                        exclude=client_id,
+                    )
 
-                elif msg_type in ("call_request", "call_accept", "call_reject", "call_end",
-                                  "webrtc_offer", "webrtc_answer", "webrtc_ice"):
+                elif msg_type in (
+                    "call_request",
+                    "call_accept",
+                    "call_reject",
+                    "call_end",
+                    "webrtc_offer",
+                    "webrtc_answer",
+                    "webrtc_ice",
+                ):
                     target_name = data.get("target_name", "")
                     target_ws = None
                     for cid, cinfo in MESH_CLIENTS.items():
@@ -520,8 +575,12 @@ async def mesh_websocket(websocket: WebSocket, client_id: str):
                             else:
                                 fwd = {
                                     "type": msg_type,
-                                    "caller_name": data.get("caller_name", MESH_CLIENTS.get(client_id, {}).get("name", "Unknown")),
-                                    "caller_role": data.get("caller_role", MESH_CLIENTS.get(client_id, {}).get("role", "responder")),
+                                    "caller_name": data.get(
+                                        "caller_name", MESH_CLIENTS.get(client_id, {}).get("name", "Unknown")
+                                    ),
+                                    "caller_role": data.get(
+                                        "caller_role", MESH_CLIENTS.get(client_id, {}).get("role", "responder")
+                                    ),
                                     "target_name": target_name,
                                     "call_type": data.get("call_type", "voice"),
                                     "timestamp": int(_time.time()),
@@ -553,21 +612,25 @@ async def mesh_websocket(websocket: WebSocket, client_id: str):
                         roster[i]["status"] = "offline"
                         write_json(rp, roster)
                         break
-        await broadcast_mesh({
-            "type": "client_left",
-            "client_id": client_id,
-            "clients": len([c for c in MESH_WS]),
-        })
+        await broadcast_mesh(
+            {
+                "type": "client_left",
+                "client_id": client_id,
+                "clients": len([c for c in MESH_WS]),
+            }
+        )
 
 
 # ── Background Tasks ──────────────────────────────────────────────────────────
+
 
 async def stale_checker():
     """Purge stale clients periodically."""
     while True:
         await asyncio.sleep(15)
         now = int(_time.time())
-        stale_ids = [cid for cid, c in MESH_CLIENTS.items()
-                     if now - c["last_ping"] > CLIENT_TIMEOUT and cid not in MESH_WS]
+        stale_ids = [
+            cid for cid, c in MESH_CLIENTS.items() if now - c["last_ping"] > CLIENT_TIMEOUT and cid not in MESH_WS
+        ]
         for cid in stale_ids:
             MESH_CLIENTS.pop(cid, None)

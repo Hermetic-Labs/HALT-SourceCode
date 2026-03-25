@@ -1,5 +1,21 @@
 """
-Patients — CRUD, attachments, PDF/HTML export, shift report, snapshot/restore.
+Patient routes — full lifecycle from triage intake through discharge.
+
+Five major sections:
+  1. CRUD           — Create / read / update / delete patient records.
+  2. Attachments    — File uploads (photos, X-rays) stored per-patient on disk.
+  3. PDF Export     — Stdlib-only PDF generation (no reportlab/weasyprint) for
+                      air-gap safety. Outputs a Courier-font text PDF with
+                      wrapped lines and multi-page support.
+  4. HTML Export    — Print-ready, locale-aware patient card for medevac handoff.
+                      Loads UI labels from viewer locale JSON so the output
+                      matches the medic's configured language.
+  5. Shift Report   — Cross-ward status rollup for shift handoff, grouped by
+                      ward and sorted by triage priority.
+  6. Snapshot/Restore — Full data dump and bulk import for mesh replication.
+
+All data lives as JSON files on disk (via storage.py), encrypted at rest
+when the cryptography package is available.
 """
 import shutil
 from datetime import datetime
@@ -12,25 +28,32 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 from storage import (
-    DATA_DIR, ATTACH_DIR, read_json, write_json, patient_path,
+    DATA_DIR,
+    ATTACH_DIR,
+    read_json,
+    write_json,
+    patient_path,
 )
 
 router = APIRouter(tags=["patients"])
 
 # ── Models ─────────────────────────────────────────────────────────────────────
 
+
 class PatientEvent(BaseModel):
     id: str
     timestamp: str
-    type: str          # vitals | medication | procedure | note | status_change
+    type: str  # vitals | medication | procedure | note | status_change
     summary: str
     data: Optional[dict[str, Any]] = None
+
 
 class PatientTriage(BaseModel):
     priority: str
     priorityLabel: str
     hemoClass: str
     gcsCat: str
+
 
 class PatientVitals(BaseModel):
     hr: float = 0
@@ -41,12 +64,14 @@ class PatientVitals(BaseModel):
     temp: float = 0
     pain: float = 0
 
+
 class PatientPlan(BaseModel):
     march: list[dict[str, Any]] = []
     drugs: list[dict[str, Any]] = []
     rx: list[str] = []
     recovery: list[str] = []
     escalate: list[str] = []
+
 
 class PatientRecord(BaseModel):
     id: str
@@ -63,8 +88,10 @@ class PatientRecord(BaseModel):
     regions: list[str] = []
     wardId: str = ""
     roomNumber: str = ""
-    status: str = "active"   # active | stable | critical | transferred | discharged
-    triage: PatientTriage = Field(default_factory=lambda: PatientTriage(priority="--", priorityLabel="", hemoClass="--", gcsCat="--"))
+    status: str = "active"  # active | stable | critical | transferred | discharged
+    triage: PatientTriage = Field(
+        default_factory=lambda: PatientTriage(priority="--", priorityLabel="", hemoClass="--", gcsCat="--")
+    )
     initialVitals: PatientVitals = Field(default_factory=PatientVitals)
     plan: PatientPlan = Field(default_factory=PatientPlan)
     events: list[PatientEvent] = []
@@ -73,6 +100,7 @@ class PatientRecord(BaseModel):
     nextOfKin: str = ""
     spokenLanguage: str = "English"
     public_opt_in: bool = False
+
 
 class PatientSummary(BaseModel):
     id: str
@@ -87,7 +115,9 @@ class PatientSummary(BaseModel):
     mechanism: str
     allergies: list[str]
 
+
 # ── Public Lookup (family-facing) ──────────────────────────────────────────────
+
 
 @router.get("/api/public/patients")
 def public_patient_lookup(name: str = ""):
@@ -104,21 +134,25 @@ def public_patient_lookup(name: str = ""):
                 continue
             attachment_names = record.get("attachmentNames", [])
             photo_name = next((n for n in attachment_names if n.startswith("photo.")), "")
-            results.append({
-                "id": record.get("id"),
-                "name": record.get("name"),
-                "wardId": record.get("wardId"),
-                "roomNumber": record.get("roomNumber"),
-                "status": record.get("status"),
-                "admittedAt": record.get("admittedAt"),
-                "hasPhoto": bool(photo_name),
-                "photoUrl": f"/api/patients/{record['id']}/attachments/{photo_name}" if photo_name else None,
-            })
+            results.append(
+                {
+                    "id": record.get("id"),
+                    "name": record.get("name"),
+                    "wardId": record.get("wardId"),
+                    "roomNumber": record.get("roomNumber"),
+                    "status": record.get("status"),
+                    "admittedAt": record.get("admittedAt"),
+                    "hasPhoto": bool(photo_name),
+                    "photoUrl": f"/api/patients/{record['id']}/attachments/{photo_name}" if photo_name else None,
+                }
+            )
         except Exception:
             continue
     return results
 
+
 # ── CRUD ───────────────────────────────────────────────────────────────────────
+
 
 @router.get("/api/patients")
 def list_patients(status: Optional[str] = None, full: bool = False):
@@ -133,19 +167,21 @@ def list_patients(status: Optional[str] = None, full: bool = False):
             if full:
                 results.append(data)
             else:
-                results.append(PatientSummary(
-                    id=data["id"],
-                    name=data.get("name", ""),
-                    age=data.get("age", 0),
-                    sex=data.get("sex", "U"),
-                    wardId=data.get("wardId", ""),
-                    roomNumber=data.get("roomNumber", ""),
-                    status=data.get("status", "active"),
-                    priority=data.get("triage", {}).get("priority", "--"),
-                    admittedAt=data.get("admittedAt", ""),
-                    mechanism=data.get("mechanism", ""),
-                    allergies=data.get("allergies", []),
-                ).model_dump())
+                results.append(
+                    PatientSummary(
+                        id=data["id"],
+                        name=data.get("name", ""),
+                        age=data.get("age", 0),
+                        sex=data.get("sex", "U"),
+                        wardId=data.get("wardId", ""),
+                        roomNumber=data.get("roomNumber", ""),
+                        status=data.get("status", "active"),
+                        priority=data.get("triage", {}).get("priority", "--"),
+                        admittedAt=data.get("admittedAt", ""),
+                        mechanism=data.get("mechanism", ""),
+                        allergies=data.get("allergies", []),
+                    ).model_dump()
+                )
         except Exception:
             continue
     return sorted(results, key=lambda s: s.get("admittedAt", ""), reverse=True)
@@ -223,7 +259,9 @@ def delete_patient(patient_id: str):
         raise HTTPException(status_code=404, detail="Patient not found")
     path.unlink()
 
+
 # ── Attachments ────────────────────────────────────────────────────────────────
+
 
 @router.post("/api/patients/{patient_id}/attachments")
 async def upload_attachment(patient_id: str, file: UploadFile = File(...)):
@@ -256,6 +294,7 @@ def get_attachment(patient_id: str, filename: str):
 
 # ── PDF Export ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/api/patients/{patient_id}/pdf")
 def patient_pdf(patient_id: str):
     """Generate a downloadable PDF of a patient record (stdlib-only)."""
@@ -269,7 +308,9 @@ def patient_pdf(patient_id: str):
     lines.append(f"ID: {rec.get('id', '')}  |  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     lines.append("")
     lines.append("DEMOGRAPHICS")
-    lines.append(f"  Name: {rec.get('name', '--')}  |  Age: {rec.get('age', '--')} {rec.get('ageUnit', '')}  |  Sex: {rec.get('sex', '--')}")
+    lines.append(
+        f"  Name: {rec.get('name', '--')}  |  Age: {rec.get('age', '--')} {rec.get('ageUnit', '')}  |  Sex: {rec.get('sex', '--')}"
+    )
     lines.append(f"  Weight: {rec.get('weight', '--')} kg  |  Pregnant: {'Yes' if rec.get('pregnant') else 'No'}")
     lines.append(f"  Language: {rec.get('spokenLanguage', '--')}  |  Next of Kin: {rec.get('nextOfKin', '--')}")
     lines.append(f"  Allergies: {', '.join(rec.get('allergies', [])) or 'None known'}")
@@ -290,7 +331,9 @@ def patient_pdf(patient_id: str):
     vitals = rec.get("initialVitals", {})
     lines.append("INITIAL VITALS")
     lines.append(f"  HR: {vitals.get('hr', '--')}  |  SBP: {vitals.get('sbp', '--')}  |  RR: {vitals.get('rr', '--')}")
-    lines.append(f"  SpO2: {vitals.get('spo2', '--')}%  |  GCS: {vitals.get('gcs', '--')}  |  Temp: {vitals.get('temp', '--')}C  |  Pain: {vitals.get('pain', '--')}/10")
+    lines.append(
+        f"  SpO2: {vitals.get('spo2', '--')}%  |  GCS: {vitals.get('gcs', '--')}  |  Temp: {vitals.get('temp', '--')}C  |  Pain: {vitals.get('pain', '--')}/10"
+    )
     lines.append("")
 
     plan = rec.get("plan", {})
@@ -345,7 +388,7 @@ def patient_pdf(patient_id: str):
 
     pages = []
     for i in range(0, len(wrapped), MAX_LINES):
-        page_lines = wrapped[i:i + MAX_LINES]
+        page_lines = wrapped[i : i + MAX_LINES]
         stream_parts = ["BT", "/F1 9 Tf", "50 750 Td", "12 TL"]
         for pl in page_lines:
             safe = pl.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
@@ -353,7 +396,9 @@ def patient_pdf(patient_id: str):
         stream_parts.append("ET")
         stream = "\n".join(stream_parts)
 
-        stream_obj_num = obj(f"{len(objects) + 1} 0 obj\n<< /Length {len(stream)} >>\nstream\n{stream}\nendstream\nendobj")
+        stream_obj_num = obj(
+            f"{len(objects) + 1} 0 obj\n<< /Length {len(stream)} >>\nstream\n{stream}\nendstream\nendobj"
+        )
         page_obj_num = obj(
             f"{len(objects) + 1} 0 obj\n"
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
@@ -374,10 +419,7 @@ def patient_pdf(patient_id: str):
     pdf_parts.append(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n")
     for xr in xrefs:
         pdf_parts.append(f"{xr:010d} 00000 n \n")
-    pdf_parts.append(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-        f"startxref\n{xref_start}\n%%EOF\n"
-    )
+    pdf_parts.append(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n" f"startxref\n{xref_start}\n%%EOF\n")
     pdf_bytes = "".join(pdf_parts).encode("latin-1")
 
     return Response(
@@ -388,6 +430,7 @@ def patient_pdf(patient_id: str):
 
 
 # ── HTML Export ────────────────────────────────────────────────────────────────
+
 
 @router.get("/api/patients/{patient_id}/export", response_class=HTMLResponse)
 def patient_export_html(patient_id: str, lang: str = "en"):
@@ -413,18 +456,35 @@ def patient_export_html(patient_id: str, lang: str = "en"):
         "treatment_orders": "TREATMENT ORDERS",
         "timeline": "TIMELINE (Last 20)",
         "notes": "NOTES",
-        "age": "Age", "sex": "Sex", "weight": "Weight",
-        "pregnant": "Pregnant", "language": "Language",
-        "next_of_kin": "Next of Kin", "allergies": "Allergies",
-        "ward": "Ward", "room": "Room",
-        "admitted": "Admitted", "injury_time": "Injury Time",
-        "mechanism": "Mechanism", "regions": "Regions",
-        "priority": "Priority", "hemo_class": "Hemo Class",
+        "age": "Age",
+        "sex": "Sex",
+        "weight": "Weight",
+        "pregnant": "Pregnant",
+        "language": "Language",
+        "next_of_kin": "Next of Kin",
+        "allergies": "Allergies",
+        "ward": "Ward",
+        "room": "Room",
+        "admitted": "Admitted",
+        "injury_time": "Injury Time",
+        "mechanism": "Mechanism",
+        "regions": "Regions",
+        "priority": "Priority",
+        "hemo_class": "Hemo Class",
         "gcs_category": "GCS Category",
-        "phase": "Phase", "label": "Label", "actions": "Actions",
-        "drug": "Drug", "dose": "Dose", "route": "Route", "regimen": "Regimen",
-        "time": "Time", "type": "Type", "summary": "Summary",
-        "yes": "Yes", "no": "No", "none_known": "None known",
+        "phase": "Phase",
+        "label": "Label",
+        "actions": "Actions",
+        "drug": "Drug",
+        "dose": "Dose",
+        "route": "Route",
+        "regimen": "Regimen",
+        "time": "Time",
+        "type": "Type",
+        "summary": "Summary",
+        "yes": "Yes",
+        "no": "No",
+        "none_known": "None known",
         "confidential": "Medic Info — Air-Gapped Triage System — CONFIDENTIAL",
     }
 
@@ -433,27 +493,50 @@ def patient_export_html(patient_id: str, lang: str = "en"):
         locale_path = Path(__file__).parent.parent.parent / "viewer" / "public" / "locales" / f"{lang}.json"
         if locale_path.exists():
             import json as _json
+
             try:
                 locale_data = _json.loads(locale_path.read_text(encoding="utf-8"))
                 # Map locale keys to our label keys
                 key_map = {
-                    "export.patient_record": "patient_record", "export.demographics": "demographics",
-                    "export.admission": "admission", "export.triage": "triage",
-                    "export.initial_vitals": "initial_vitals", "export.march_protocol": "march_protocol",
-                    "export.medications": "medications", "export.treatment_orders": "treatment_orders",
-                    "export.timeline": "timeline", "export.notes": "notes",
-                    "export.age": "age", "export.sex": "sex", "export.weight": "weight",
-                    "export.pregnant": "pregnant", "export.language": "language",
-                    "export.next_of_kin": "next_of_kin", "export.allergies": "allergies",
-                    "export.ward": "ward", "export.room": "room",
-                    "export.admitted": "admitted", "export.injury_time": "injury_time",
-                    "export.mechanism": "mechanism", "export.regions": "regions",
-                    "export.priority": "priority", "export.hemo_class": "hemo_class",
+                    "export.patient_record": "patient_record",
+                    "export.demographics": "demographics",
+                    "export.admission": "admission",
+                    "export.triage": "triage",
+                    "export.initial_vitals": "initial_vitals",
+                    "export.march_protocol": "march_protocol",
+                    "export.medications": "medications",
+                    "export.treatment_orders": "treatment_orders",
+                    "export.timeline": "timeline",
+                    "export.notes": "notes",
+                    "export.age": "age",
+                    "export.sex": "sex",
+                    "export.weight": "weight",
+                    "export.pregnant": "pregnant",
+                    "export.language": "language",
+                    "export.next_of_kin": "next_of_kin",
+                    "export.allergies": "allergies",
+                    "export.ward": "ward",
+                    "export.room": "room",
+                    "export.admitted": "admitted",
+                    "export.injury_time": "injury_time",
+                    "export.mechanism": "mechanism",
+                    "export.regions": "regions",
+                    "export.priority": "priority",
+                    "export.hemo_class": "hemo_class",
                     "export.gcs_category": "gcs_category",
-                    "export.phase": "phase", "export.label": "label", "export.actions": "actions",
-                    "export.drug": "drug", "export.dose": "dose", "export.route": "route", "export.regimen": "regimen",
-                    "export.time": "time", "export.type": "type", "export.summary": "summary",
-                    "export.yes": "yes", "export.no": "no", "export.none_known": "none_known",
+                    "export.phase": "phase",
+                    "export.label": "label",
+                    "export.actions": "actions",
+                    "export.drug": "drug",
+                    "export.dose": "dose",
+                    "export.route": "route",
+                    "export.regimen": "regimen",
+                    "export.time": "time",
+                    "export.type": "type",
+                    "export.summary": "summary",
+                    "export.yes": "yes",
+                    "export.no": "no",
+                    "export.none_known": "none_known",
                     "export.confidential": "confidential",
                 }
                 for lk, lbl in key_map.items():
@@ -468,6 +551,7 @@ def patient_export_html(patient_id: str, lang: str = "en"):
             return text
         try:
             from routes.translate import _translate
+
             return _translate(text, "en", lang)
         except Exception:
             return text
@@ -556,6 +640,7 @@ def patient_export_html(patient_id: str, lang: str = "en"):
 
 # ── Shift Report ───────────────────────────────────────────────────────────────
 
+
 @router.get("/api/reports/shift", response_class=HTMLResponse)
 def shift_report(lang: str = "en"):
     """Print-ready shift handoff report — all active patients grouped by ward."""
@@ -582,9 +667,13 @@ def shift_report(lang: str = "en"):
     sl = {
         "title": "SHIFT HANDOFF REPORT",
         "patients": "patients",
-        "name": "Name", "room": "Room", "pri": "Pri",
-        "status": "Status", "vitals": "HR/SBP/SpO2",
-        "meds": "Meds", "allergies": "Allergies",
+        "name": "Name",
+        "room": "Room",
+        "pri": "Pri",
+        "status": "Status",
+        "vitals": "HR/SBP/SpO2",
+        "meds": "Meds",
+        "allergies": "Allergies",
         "active_patients": "Active Patients",
         "confidential": "Medic Info — Air-Gapped Triage System — CONFIDENTIAL",
     }
@@ -593,13 +682,19 @@ def shift_report(lang: str = "en"):
         locale_path = Path(__file__).parent.parent.parent / "viewer" / "public" / "locales" / f"{lang}.json"
         if locale_path.exists():
             import json as _json
+
             try:
                 locale_data = _json.loads(locale_path.read_text(encoding="utf-8"))
                 key_map = {
-                    "shift.title": "title", "shift.patients": "patients",
-                    "shift.name": "name", "shift.room": "room", "shift.pri": "pri",
-                    "shift.status": "status", "shift.vitals": "vitals",
-                    "shift.meds": "meds", "shift.allergies": "allergies",
+                    "shift.title": "title",
+                    "shift.patients": "patients",
+                    "shift.name": "name",
+                    "shift.room": "room",
+                    "shift.pri": "pri",
+                    "shift.status": "status",
+                    "shift.vitals": "vitals",
+                    "shift.meds": "meds",
+                    "shift.allergies": "allergies",
                     "shift.active_patients": "active_patients",
                     "export.confidential": "confidential",
                 }
@@ -622,7 +717,9 @@ def shift_report(lang: str = "en"):
                 if ev.get("type") == "vitals" and ev.get("data"):
                     latest_v = ev["data"]
                     break
-            pc = {"T1": "#e74c3c", "T2": "#f0a500", "T3": "#3fb950", "T4": "#8b949e"}.get(t.get("priority", ""), "#58a6ff")
+            pc = {"T1": "#e74c3c", "T2": "#f0a500", "T3": "#3fb950", "T4": "#8b949e"}.get(
+                t.get("priority", ""), "#58a6ff"
+            )
             drugs_str = ", ".join(d.get("name", "") for d in pt.get("plan", {}).get("drugs", [])[:3])
             rows += f"""<tr>
               <td style="border-left:4px solid {pc}">{pt.get('name','?')}</td>
@@ -658,6 +755,7 @@ def shift_report(lang: str = "en"):
 
 
 # ── Data Replication ──────────────────────────────────────────────────────────
+
 
 @router.get("/api/patients/snapshot")
 def patient_snapshot():

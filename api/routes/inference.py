@@ -8,9 +8,8 @@ import json
 import time
 import logging
 import asyncio
-from pathlib import Path
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import MODELS_DIR
@@ -22,12 +21,14 @@ router = APIRouter(tags=["inference"])
 _llm = None
 _llm_name = None
 
+
 def _get_llm():
     global _llm, _llm_name
     if _llm:
         return _llm
     try:
         from llama_cpp import Llama
+
         gguf_files = sorted(MODELS_DIR.glob("*.gguf"))
         if not gguf_files:
             raise FileNotFoundError(f"No GGUF models in {MODELS_DIR}")
@@ -38,9 +39,9 @@ def _get_llm():
             model_path=str(model_path),
             n_ctx=4096,
             n_threads=max(1, (os.cpu_count() or 4) - 2),  # Leave cores for Kokoro TTS Pipeline
-            n_batch=512,        # prompt-eval batch size
+            n_batch=512,  # prompt-eval batch size
             n_gpu_layers=0,
-            use_mmap=True,      # memory-map model file (faster cold start)
+            use_mmap=True,  # memory-map model file (faster cold start)
             use_mlock=False,
             verbose=False,
         )
@@ -50,6 +51,8 @@ def _get_llm():
     except Exception as e:
         logger.error(f"LLM load failed: {e}")
         return None
+
+
 # Model lazy-loads on first call; background warmup is triggered by main.py startup.
 
 
@@ -58,9 +61,9 @@ def _get_llm():
 # The lock serializes requests; the counter gives queue position feedback.
 
 _inference_lock = asyncio.Lock()
-_queue_waiting = 0       # number of requests waiting for the lock
-_queue_active = False    # whether a generation is currently running
-_active_user = ""        # name of the user currently generating
+_queue_waiting = 0  # number of requests waiting for the lock
+_queue_active = False  # whether a generation is currently running
+_active_user = ""  # name of the user currently generating
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -68,11 +71,12 @@ class Message(BaseModel):
     role: str
     content: str
 
+
 class ChatRequest(BaseModel):
-    messages: List[Message]
+    messages: list[Message]
     max_tokens: Optional[int] = 512
     temperature: Optional[float] = 0.7
-    user_name: Optional[str] = ""   # for queue position feedback
+    user_name: Optional[str] = ""  # for queue position feedback
 
 
 # ── Main Endpoint ──────────────────────────────────────────────────────────────
@@ -153,15 +157,16 @@ async def _do_generate(req: ChatRequest):
                 token = chunk["choices"][0]["delta"].get("content", "")
                 if token:
                     count += 1
-                    yield json.dumps({'type': 'token', 'token': token})
+                    yield json.dumps({"type": "token", "token": token})
             elapsed = time.time() - start
             tok_s = round(count / elapsed, 1) if elapsed else 0
-            yield json.dumps({'type': 'done', 'tokens': count, 'tokens_per_s': tok_s, 'model': _llm_name})
+            yield json.dumps({"type": "done", "tokens": count, "tokens_per_s": tok_s, "model": _llm_name})
         except Exception as e:
-            yield json.dumps({'type': 'error', 'error': str(e)})
+            yield json.dumps({"type": "error", "error": str(e)})
 
     # Run synchronous generator in thread, yield SSE chunks
     import queue
+
     result_q: queue.Queue = queue.Queue()
 
     def _run():
@@ -199,6 +204,7 @@ async def list_models():
     gguf = list(MODELS_DIR.glob("*.gguf"))
     return {
         "loaded": _llm_name,
-        "models": [{"name": f.stem, "filename": f.name,
-                    "size_gb": round(f.stat().st_size / (1024**3), 2)} for f in gguf],
+        "models": [
+            {"name": f.stem, "filename": f.name, "size_gb": round(f.stat().st_size / (1024**3), 2)} for f in gguf
+        ],
     }
