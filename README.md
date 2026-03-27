@@ -35,7 +35,7 @@ HALT is an air-gapped medical triage system that runs entirely on-device. It bun
 
 <br/>
 
-Download the latest release from [Cloudflare R2](https://hermeticlabs.health), unzip, and run.
+Download the latest release from [Cloudflare R2](https://7hermeticlabs.health), unzip, and run.
 Everything is included — no internet needed after download.
 
 </details>
