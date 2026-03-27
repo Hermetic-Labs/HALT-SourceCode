@@ -14,7 +14,7 @@ HALT is medical triage software designed for air-gapped, offline environments. S
 
 If you discover a security issue, **please report it responsibly**:
 
-1. **Email**: security@hermeticlabs.app
+1. **Email**: security@7hermeticlabs.com
 2. **Do NOT** open a public GitHub issue for security vulnerabilities
 3. Include:
    - Description of the vulnerability

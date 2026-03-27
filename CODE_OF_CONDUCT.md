@@ -21,7 +21,7 @@ HALT exists to serve medics working in conflict zones, disaster areas, and resou
 
 ## Enforcement
 
-Instances of unacceptable behavior may be reported to conduct@hermeticlabs.app. All complaints will be reviewed and investigated. The maintainers reserve the right to remove, edit, or reject contributions that violate this Code of Conduct.
+Instances of unacceptable behavior may be reported to conduct@7hermeticlabs.com. All complaints will be reviewed and investigated. The maintainers reserve the right to remove, edit, or reject contributions that violate this Code of Conduct.
 
 ## Attribution
 
@@ -29,4 +29,4 @@ Adapted from the [Contributor Covenant](https://www.contributor-covenant.org/), 
 
 ---
 
-*Hermetic Labs — [hermeticlabs.app](https://hermeticlabs.app)*
+*Hermetic Labs — [7hermeticlabs.com](https://7hermeticlabs.com)*

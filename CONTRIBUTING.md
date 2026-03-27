@@ -54,4 +54,4 @@ By contributing, you agree that your contributions will be licensed under the [M
 
 ---
 
-*Built by [Hermetic Labs](https://hermeticlabs.app) for the people who run toward the worst moments in the world so the rest of us don't have to.*
+*Built by [Hermetic Labs](https://7hermeticlabs.com) for the people who run toward the worst moments in the world so the rest of us don't have to.*
