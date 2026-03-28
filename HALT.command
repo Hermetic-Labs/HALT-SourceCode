@@ -1,10 +1,10 @@
 #!/bin/bash
-# ─────────────────────────────────────────────────────────
-#  HALT — Double-click to launch
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
+#  HALT - Double-click to launch
+# ---------------------------------------------------------
 #  This is a macOS .command file. You can double-click it
 #  in Finder to start the HALT system. No Terminal needed.
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
@@ -19,7 +19,7 @@ if [ -x "$DIR/runtime/python/bin/python3" ]; then
     echo "  [OK]     Using bundled Python runtime"
 else
     PYTHON=$(command -v python3 || command -v python)
-    echo "  [WARN]   Bundled runtime not found — using system Python: $PYTHON"
+    echo "  [WARN]   Bundled runtime not found -- using system Python: $PYTHON"
 fi
 
 if [ -z "$PYTHON" ]; then
@@ -31,9 +31,9 @@ if [ -z "$PYTHON" ]; then
 fi
 
 echo ""
-echo "  ╔═══════════════════════════════════════╗"
-echo "  ║         HALT — Starting Up            ║"
-echo "  ╚═══════════════════════════════════════╝"
+echo "  +---------------------------------------+"
+echo "  |         HALT -- Starting Up           |"
+echo "  +---------------------------------------+"
 echo ""
 
 "$PYTHON" "$DIR/start.py"

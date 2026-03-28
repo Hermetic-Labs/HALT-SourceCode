@@ -95,14 +95,45 @@ def stage_app(version):
         shutil.rmtree(stage_dir)
     stage_dir.mkdir()
 
-    # Copy source directories into stage.
-    # NOTE: triage/ has ~44K raw ICD-10 source files that are already compiled
+    # Build frontend from source (viewer/src → viewer/dist)
+    viewer_src = REPO_ROOT / "viewer" / "src"
+    viewer_pkg = REPO_ROOT / "viewer" / "package.json"
+    if viewer_src.exists() and viewer_pkg.exists():
+        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+        viewer_dir = REPO_ROOT / "viewer"
+
+        # Ensure node_modules are installed (uses lock file + offline cache if air-gapped)
+        if not (viewer_dir / "node_modules").exists():
+            print("  [BUILD]   Installing frontend dependencies (npm install)...")
+            result = subprocess.run(
+                [npm_cmd, "install"], cwd=viewer_dir,
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                print(f"            [ERROR] npm install failed:\n{result.stderr}")
+                sys.exit(1)
+
+        print("  [BUILD]   Building frontend (npm run build)...")
+        result = subprocess.run(
+            [npm_cmd, "run", "build"], cwd=viewer_dir
+        )
+        if result.returncode != 0:
+            print("            [ERROR] Frontend build failed (see output above)")
+            sys.exit(1)
+        print("  [OK]      Frontend built")
+    else:
+        print("            [INFO] No viewer source found, using existing dist/")
+
+    # Copy directories into stage.
+    # NOTE: viewer/ — only ship the compiled dist/, NOT src/node_modules/configs.
+    # Full source lives in git; only the production build goes into the Electron package.
+    # triage/ has ~44K raw ICD-10 source files already compiled
     # into viewer/dist/data/conditions-index.json. We only ship the backend
     # code (triage_assistant/) — NOT the raw source data.
     copies = [
         (REPO_ROOT / "api", stage_dir / "api"),
         (REPO_ROOT / "electron", stage_dir / "electron"),
-        (REPO_ROOT / "viewer", stage_dir / "viewer"),
+        (REPO_ROOT / "viewer" / "dist", stage_dir / "viewer" / "dist"),
         (REPO_ROOT / "triage" / "triage_assistant", stage_dir / "triage" / "triage_assistant"),
         (REPO_ROOT / "models", stage_dir / "models"),
         (REPO_ROOT / "runtime", stage_dir / "runtime"),
@@ -124,9 +155,29 @@ def stage_app(version):
     return stage_dir
 
 
-def build_electron(version):
+def build_electron(version, dev_mode=False):
     """Run electron-builder to produce the Windows distribution."""
-    print("  [BUILD]   Running electron-builder (Windows)...")
+    mode_label = "portable (--dev)" if dev_mode else "installer"
+    print(f"  [BUILD]   Running electron-builder (Windows, {mode_label})...")
+
+    # Sync logo from repo assets into electron-builder's assets dir
+    repo_logo = REPO_ROOT / "assets" / "logo.png"
+    builder_assets = ELECTRON_DIR / "assets"
+    builder_assets.mkdir(exist_ok=True)
+    if repo_logo.exists():
+        shutil.copy2(repo_logo, builder_assets / "logo.png")
+        # NSIS requires .ico — auto-convert if Pillow is available
+        ico_path = builder_assets / "logo.ico"
+        if not ico_path.exists():
+            try:
+                from PIL import Image
+                img = Image.open(str(repo_logo)).convert("RGBA")
+                img = img.resize((256, 256), Image.LANCZOS)
+                img.save(str(ico_path), format="ICO",
+                         sizes=[(256, 256), (48, 48), (32, 32), (16, 16)])
+                print("            [OK] Generated logo.ico from logo.png")
+            except Exception as e:
+                print(f"            [WARN] Could not generate .ico: {e}")
 
     # Ensure node_modules exist
     if not (ELECTRON_DIR / "node_modules").exists():
@@ -134,8 +185,14 @@ def build_electron(version):
         subprocess.run(["npm", "install"], cwd=str(ELECTRON_DIR), check=True, shell=True)
 
     # Run the build
+    # --dev uses --dir (portable folder only, skips NSIS installer — much faster)
+    if dev_mode:
+        build_cmd = ["npx", "electron-builder", "--win", "--dir"]
+    else:
+        build_cmd = ["npm", "run", "build:win"]
+
     result = subprocess.run(
-        ["npm", "run", "build:win"],
+        build_cmd,
         cwd=str(ELECTRON_DIR),
         shell=True,
     )
@@ -259,14 +316,44 @@ def stage_macos(version):
         shutil.rmtree(stage_dir)
     stage_dir.mkdir(parents=True)
 
-    # Copy source directories into stage.
-    # NOTE: triage/ has ~44K raw ICD-10 source files that are already compiled
+    # Build frontend if viewer source exists (same as Windows path)
+    viewer_src = REPO_ROOT / "viewer" / "src"
+    viewer_pkg = REPO_ROOT / "viewer" / "package.json"
+    if viewer_src.exists() and viewer_pkg.exists():
+        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+        viewer_dir = REPO_ROOT / "viewer"
+
+        if not (viewer_dir / "node_modules").exists():
+            print("  [BUILD]   Installing frontend dependencies (npm install)...")
+            result = subprocess.run(
+                [npm_cmd, "install"], cwd=viewer_dir,
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                print(f"            [ERROR] npm install failed:\n{result.stderr}")
+                sys.exit(1)
+
+        print("  [BUILD]   Building frontend (npm run build)...")
+        result = subprocess.run(
+            [npm_cmd, "run", "build"], cwd=viewer_dir
+        )
+        if result.returncode != 0:
+            print("            [ERROR] Frontend build failed (see output above)")
+            sys.exit(1)
+        print("  [OK]      Frontend built")
+    else:
+        print("            [INFO] No viewer source found, using existing dist/")
+
+    # Copy directories into stage.
+    # NOTE: viewer/ — only ship the compiled dist/, NOT src/node_modules/configs.
+    # triage/ has ~44K raw ICD-10 source files already compiled
     # into viewer/dist/data/conditions-index.json. We only ship the backend
     # code (triage_assistant/) — NOT the raw source data.
     copies = [
         (REPO_ROOT / "api", stage_dir / "api"),
-        (REPO_ROOT / "viewer", stage_dir / "viewer"),
+        (REPO_ROOT / "viewer" / "dist", stage_dir / "viewer" / "dist"),
         (REPO_ROOT / "triage" / "triage_assistant", stage_dir / "triage" / "triage_assistant"),
+        (REPO_ROOT / "models", stage_dir / "models"),
         (REPO_ROOT / "runtime", stage_dir / "runtime"),
         (REPO_ROOT / "assets", stage_dir / "assets"),
     ]
@@ -276,7 +363,7 @@ def stage_macos(version):
             print(f"            copying {src.name}/...")
             shutil.copytree(src, dst, dirs_exist_ok=True)
         else:
-            print(f"            [WARN] {src.name}/ not found")
+            print(f"            [WARN] {src.name}/ not found, skipping")
 
     # Copy top-level files
     for f in ["start.py", "requirements.txt", "README.md", "LICENSE", "HALT.command"]:
@@ -288,9 +375,6 @@ def stage_macos(version):
     launcher = stage_dir / "HALT.command"
     if launcher.exists():
         os.chmod(str(launcher), 0o755)
-
-    # Empty models dir (auto-downloads on first run)
-    (stage_dir / "models").mkdir(exist_ok=True)
 
     # Clean up __pycache__
     for p in stage_dir.rglob("__pycache__"):
@@ -347,10 +431,13 @@ def zip_distribution(source_dir, version, platform_name="Windows"):
     CORE_FILENAMES = {"start.py", "main.py", "config.py", "storage.py", "bridge.py"}
     CORE_SUBDIRS = {"api", os.path.join("api", "routes")}
 
-    # Collect all files
+    # Collect all files (skip __pycache__ — Python regenerates .pyc on first import)
     all_files = []
     for root, dirs, files in os.walk(source_dir):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
         for f in files:
+            if f.endswith(".pyc") or f.endswith(".pyo"):
+                continue
             all_files.append(os.path.join(root, f))
 
     total = len(all_files)
@@ -370,15 +457,21 @@ def zip_distribution(source_dir, version, platform_name="Windows"):
             ext = os.path.splitext(filepath)[1].lower()
             file_size = os.path.getsize(filepath)
 
+            # Create explicit ZipInfo to preserve filesystem permissions (e.g. chmod +x)
+            zinfo = zipfile.ZipInfo.from_file(filepath, arcname)
+
             # Smart compression: store binaries, deflate source
             if ext in STORED_EXTENSIONS:
-                zf.write(filepath, arcname, compress_type=zipfile.ZIP_STORED)
+                zinfo.compress_type = zipfile.ZIP_STORED
                 stored_count += 1
                 stored_bytes += file_size
             else:
-                zf.write(filepath, arcname, compress_type=zipfile.ZIP_DEFLATED)
+                zinfo.compress_type = zipfile.ZIP_DEFLATED
                 deflated_count += 1
                 deflated_bytes += file_size
+
+            with open(filepath, "rb") as f:
+                zf.writestr(zinfo, f.read())
 
             # SHA-256 for core files — match by filename in relevant directories.
             # Works for both Electron (resources/app/api/main.py) and standalone layouts.
@@ -482,6 +575,10 @@ def upload_to_r2(zip_path, version, platform_name="Windows"):
             object_name,
             Config=config,
             Callback=Progress(file_size),
+            ExtraArgs={
+                "ContentDisposition": f'attachment; filename="{object_name}"',
+                "ContentType": "application/zip",
+            },
         )
         print()
         print("  [OK]      Upload complete!")
@@ -495,6 +592,10 @@ def upload_to_r2(zip_path, version, platform_name="Windows"):
             latest_name,
             Config=config,
             Callback=Progress(file_size),
+            ExtraArgs={
+                "ContentDisposition": f'attachment; filename="{latest_name}"',
+                "ContentType": "application/zip",
+            },
         )
         print()
         print("  [OK]      Latest pointer updated")
@@ -719,7 +820,15 @@ def main():
     )
     parser.add_argument("--zip-only", action="store_true", help="Skip build, just zip existing build folder")
     parser.add_argument("--upload-assets", action="store_true", help="Zip and upload models/ + runtime/ to R2")
+    parser.add_argument("--dev", action="store_true", help="Dev mode: portable folder only, skip NSIS installer (faster)")
     args = parser.parse_args()
+
+    # --dev produces a portable folder only (no installer) — block accidental releases
+    if args.dev and (args.deploy or args.release):
+        print("  [ERROR]   --dev cannot be combined with --deploy or --release.")
+        print("            --dev builds are for local testing only (no NSIS installer).")
+        print("            Remove --dev for production builds.")
+        sys.exit(1)
 
     # --release implies --deploy
     if args.release:
@@ -759,9 +868,11 @@ def main():
         platform_name = "Windows"
 
         if args.zip_only:
+            # Look for existing build output in the standard locations
             candidates = [
-                REPO_ROOT / f"HALT-v{version}",
-                REPO_ROOT / "HALT-v1.0.01",  # legacy folder name
+                ELECTRON_DIR / "dist" / "win-unpacked",             # electron-builder output
+                BUILDS_DIR / f"HALT-v{version}-Windows",            # staged build folder
+                REPO_ROOT / f"HALT-v{version}",                     # legacy folder name
             ]
             source_dir = None
             for c in candidates:
@@ -769,12 +880,27 @@ def main():
                     source_dir = c
                     break
             if source_dir is None:
+                # Check if a ZIP already exists — skip zip, go straight to upload
+                existing_zip = BUILDS_DIR / f"HALT-v{version}-{platform_name}.zip"
+                if existing_zip.exists() and args.deploy:
+                    print(f"  [SKIP]    ZIP already exists: {existing_zip}")
+                    print(f"            Re-uploading with fresh headers...")
+                    zip_path = existing_zip
+                    # Jump directly to deploy
+                    success = upload_to_r2(zip_path, version, platform_name)
+                    if success:
+                        print()
+                        print("  ╔═══════════════════════════════════════╗")
+                        print(f"  ║   HALT v{version:<28s}║")
+                        print("  ║   re-uploaded to R2                   ║")
+                        print("  ╚═══════════════════════════════════════╝")
+                    sys.exit(0 if success else 1)
                 print(f"  [ERROR]   No build folder found. Tried: {[str(c) for c in candidates]}")
                 sys.exit(1)
             print(f"  [SKIP]    Using existing build: {source_dir}")
         else:
             stage_dir = stage_app(version)
-            source_dir = build_electron(version)
+            source_dir = build_electron(version, dev_mode=args.dev)
             if source_dir is None:
                 print("\n  Build failed. Use --zip-only to package existing build.")
                 sys.exit(1)
