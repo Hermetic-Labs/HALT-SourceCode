@@ -77,8 +77,14 @@ repo-root/
 | `R2_ACCOUNT_ID` | `--deploy`, `--release`, `setup.py` | Cloudflare account ID |
 | `R2_ACCESS_KEY` | `--deploy`, `--release`, `setup.py` | R2 API access key |
 | `R2_SECRET_KEY` | `--deploy`, `--release`, `setup.py` | R2 API secret key |
+| `AZURE_TENANT_ID` | signing | Azure AD tenant (`bb1b06c5-…`) |
+| `AZURE_CLIENT_ID` | signing | `halt-signing-pipeline` app ID (`385db38c-…`) |
+| `AZURE_CLIENT_SECRET` | signing | App registration client secret |
+| `AZURE_ENDPOINT` | signing | `https://eus.codesigning.azure.net` |
+| `AZURE_CERT_PROFILE` | signing | Certificate profile name (e.g. `HALT`) |
 
-> Without these, local builds work fine. Only R2 upload/download requires them.
+> Without R2 vars, local builds work fine. Only R2 upload/download requires them.
+> Without AZURE vars, builds are unsigned (SmartScreen will warn). Set all five to enable signing.
 
 ## Common Gotchas
 
@@ -89,3 +95,41 @@ repo-root/
 | **Version inflation** | Each run without `--no-bump` increments version | Use `--no-bump` during iteration |
 | **Terminal freeze (Windows QuickEdit)** | Clicking terminal pauses `subprocess` output | Click terminal, press Enter |
 | **`--dev` + `--release`** | Pipeline blocks this combination | `--dev` is for local testing only |
+
+---
+
+## Pending
+
+### 🔲 Authenticode Code Signing — awaiting Microsoft identity validation
+
+**Submitted:** March 30, 2026
+**Check back:** April 3, 2026 (3 business days — expected validation window)
+
+Microsoft is verifying Hermetic Labs' organization identity for Azure Trusted
+Signing (`haltsigning` account, East US, Basic, ~$9.99/mo). Once the approval
+email arrives, complete these two steps — next build ships signed and the
+Windows SmartScreen "Run anyway" prompt is eliminated permanently.
+
+**Step 1 — Create the Certificate Profile in Azure:**
+
+```text
+Azure Portal → haltsigning (halt-signing RG, East US)
+  → Objects → Certificate profiles → + Add
+    Name:  HALT
+    Type:  Public Trust
+```
+
+**Step 2 — Set env vars and redeploy:**
+
+```powershell
+$env:AZURE_TENANT_ID     = "bb1b06c5-1b43-4295-8c01-d7ffd3a5b366"
+$env:AZURE_CLIENT_ID     = "385db38c-a11d-41c9-8dea-a092e97e646a"
+$env:AZURE_CLIENT_SECRET = "<secret — halt-signing-pipeline app registration>"
+$env:AZURE_ENDPOINT      = "https://eus.codesigning.azure.net"
+$env:AZURE_CERT_PROFILE  = "HALT"
+
+python dev/build_and_deploy.py --platform win --deploy
+```
+
+Pipeline will log `[SIGN] Azure Trusted Signing credentials detected — build will be signed`.
+Re-run `python dev/pull_and_inspect.py` — `[SIGN]` check should report `✓ Signed`.

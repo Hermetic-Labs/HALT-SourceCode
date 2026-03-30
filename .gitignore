@@ -73,3 +73,6 @@ site/
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
 halt-log.txt
+
+# Temporary/personal docs
+*.pdf
