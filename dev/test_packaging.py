@@ -6,16 +6,21 @@ Tests the full packaging cycle without touching git or R2.
 
 Usage:  python dev/test_packaging.py
 """
-import sys, os, time, shutil, zipfile, tempfile, json
+import sys
+import os
+import time
+import shutil
+import zipfile
+import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 PKG_JSON = REPO_ROOT / "dev" / "electron-launcher" / "package.json"
 
-# Import the build functions (guarded by __name__ check, safe to import)
+# build_and_deploy must be imported after SCRIPT_DIR is on sys.path
 sys.path.insert(0, str(SCRIPT_DIR))
-import build_and_deploy as bd
+import build_and_deploy as bd  # noqa: E402
 
 
 def main():
@@ -24,8 +29,8 @@ def main():
     print("  ╚═══════════════════════════════════════╝\n")
 
     version = bd.read_version()
-    print(f"  [INFO]    Version: {version}")
-    print(f"  [INFO]    Testing in temp folder (auto-cleanup)\n")
+    print("  [INFO]    Version: " + version)
+    print("  [INFO]    Testing in temp folder (auto-cleanup)\n")
 
     # ── Stage ────────────────────────────────────────────────────────────
     t0 = time.time()
@@ -103,15 +108,15 @@ def main():
         print("            ⚠ Models: none found (will auto-download on first launch)")
 
     # ── Summary ──────────────────────────────────────────────────────────
-    print(f"\n  ╔═══════════════════════════════════════╗")
-    print(f"  ║   Packaging Test Results                ║")
-    print(f"  ╠═══════════════════════════════════════╣")
+    print("  ╔═══════════════════════════════════════╗")
+    print("  ║   Packaging Test Results                ║")
+    print("  ╠═══════════════════════════════════════╣")
     print(f"  ║   Stage:  {stage_time:>6.1f}s  {stage_files:>6,} files  {stage_mb:>5.0f} MB ║")
     print(f"  ║   Build:  {build_time:>6.1f}s  {build_files:>6,} files  {build_mb:>5.0f} MB ║")
     print(f"  ║   Zip:    {zip_time:>6.1f}s             {zip_size_mb:>5.0f} MB ║")
     print(f"  ║   Unzip:  {unzip_time:>6.1f}s  {unzip_files:>6,} files         ║")
     print(f"  ║   Result: {'ALL PASS' if all_ok else 'ISSUES':>8}                     ║")
-    print(f"  ╚═══════════════════════════════════════╝\n")
+    print("  ╚═══════════════════════════════════════╝\n")
 
     # ── Cleanup ──────────────────────────────────────────────────────────
     answer = input("  [?]       Delete test folder? (y/n): ").strip().lower()
