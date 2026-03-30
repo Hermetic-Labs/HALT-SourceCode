@@ -390,13 +390,13 @@ def stage_macos(version):
             print(f"            [WARN] {src.name}/ not found, skipping")
 
     # Copy top-level files
-    for f in ["start.py", "requirements.txt", "README.md", "LICENSE", "HALT.command"]:
+    for f in ["start.py", "requirements.txt", "README.md", "LICENSE", "Start HALT.command"]:
         src = REPO_ROOT / f
         if src.exists():
             shutil.copy2(src, stage_dir / f)
 
     # Make launcher executable
-    launcher = stage_dir / "HALT.command"
+    launcher = stage_dir / "Start HALT.command"
     if launcher.exists():
         os.chmod(str(launcher), 0o755)
 
@@ -886,6 +886,81 @@ def main():
         else:
             build_macos_runtime(version)
             source_dir = stage_macos(version)
+
+            # ── macOS Developer ID signing + notarization ─────────────────────
+            # Requires: CSC_LINK (base64 .p12), CSC_KEY_PASSWORD, APPLE_TEAM_ID
+            # Optional: APPLE_ID + APPLE_ID_PASSWORD for notarization (recommended)
+            # Only runs on macOS — codesign is a Mac-only tool.
+            if sys.platform == "darwin":
+                _mac_sign_vars = ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_TEAM_ID"]
+                _mac_sign_env = {k: os.environ[k] for k in _mac_sign_vars if k in os.environ}
+
+                if len(_mac_sign_env) == len(_mac_sign_vars):
+                    import base64
+                    import tempfile
+                    print("  [SIGN]    macOS Developer ID signing credentials detected")
+
+                    # Write .p12 to temp file
+                    p12_bytes = base64.b64decode(_mac_sign_env["CSC_LINK"])
+                    with tempfile.NamedTemporaryFile(suffix=".p12", delete=False) as f:
+                        f.write(p12_bytes)
+                        p12_tmp = f.name
+
+                    team_id   = _mac_sign_env["APPLE_TEAM_ID"]
+                    p12_pass  = _mac_sign_env["CSC_KEY_PASSWORD"]
+                    sign_id   = f"Developer ID Application: Hermetic Labs LLC ({team_id})"
+
+                    # Import cert into temp keychain
+                    kc_tmp = tempfile.mktemp(suffix=".keychain-db")
+                    subprocess.run(["security", "create-keychain", "-p", "halt-build", kc_tmp], check=True)
+                    subprocess.run(["security", "unlock-keychain", "-p", "halt-build", kc_tmp], check=True)
+                    subprocess.run([
+                        "security", "import", p12_tmp,
+                        "-k", kc_tmp, "-P", p12_pass,
+                        "-T", "/usr/bin/codesign",
+                    ], check=True)
+                    subprocess.run([
+                        "security", "set-key-partition-list",
+                        "-S", "apple-tool:,apple:", "-s", "-k", "halt-build", kc_tmp,
+                    ], check=True)
+
+                    # Sign the bundle (deep — signs all nested binaries)
+                    print("  [SIGN]    Signing bundle with codesign --deep...")
+                    subprocess.run([
+                        "codesign", "--deep", "--force", "--verify", "--verbose=1",
+                        "--sign", sign_id,
+                        "--keychain", kc_tmp,
+                        "--options", "runtime",
+                        str(source_dir),
+                    ], check=True)
+                    print("  [OK]      Bundle signed")
+
+                    # Cleanup temp keychain + p12
+                    subprocess.run(["security", "delete-keychain", kc_tmp])
+                    os.unlink(p12_tmp)
+
+                    # Notarize (optional — needs APPLE_ID + APPLE_ID_PASSWORD)
+                    _notarize_vars = ["APPLE_ID", "APPLE_ID_PASSWORD"]
+                    if all(v in os.environ for v in _notarize_vars):
+                        print("  [NOTARIZE] Submitting to Apple notary service...")
+                        zip_for_notary = str(source_dir) + "-notary.zip"
+                        subprocess.run(["ditto", "-c", "-k", "--keepParent", str(source_dir), zip_for_notary], check=True)
+                        subprocess.run([
+                            "xcrun", "notarytool", "submit", zip_for_notary,
+                            "--apple-id", os.environ["APPLE_ID"],
+                            "--password", os.environ["APPLE_ID_PASSWORD"],
+                            "--team-id", team_id,
+                            "--wait",
+                        ], check=True)
+                        os.unlink(zip_for_notary)
+                        print("  [OK]      Notarization complete")
+                    else:
+                        print("  [NOTARIZE] Skipping — set APPLE_ID + APPLE_ID_PASSWORD to notarize")
+                else:
+                    _missing = [k for k in _mac_sign_vars if k not in os.environ]
+                    print(f"  [SIGN]    Skipping macOS signing — missing: {', '.join(_missing)}")
+                    print("            Set CSC_LINK, CSC_KEY_PASSWORD, APPLE_TEAM_ID to enable")
+
     else:
         # Windows path: Electron build
         platform_name = "Windows"

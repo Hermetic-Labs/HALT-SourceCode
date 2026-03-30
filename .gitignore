@@ -76,3 +76,8 @@ halt-log.txt
 
 # Temporary/personal docs
 *.pdf
+
+# Apple signing credentials
+*.p12
+*.cer
+dev/macos/*.pem
