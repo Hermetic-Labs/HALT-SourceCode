@@ -9,6 +9,7 @@ import re
 import struct
 import asyncio
 import logging
+import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -51,14 +52,13 @@ def _get_kokoro():
 
 
 # Load at import time — runs before uvicorn accepts connections
-import threading
-
 threading.Thread(target=_get_kokoro, daemon=True).start()
 
 
 async def _wait_kokoro(timeout: float = 60.0):
     """Poll until background Kokoro load finishes."""
-    import asyncio, time
+    import asyncio
+    import time
 
     t0 = time.monotonic()
     while _kokoro is None:

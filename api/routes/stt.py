@@ -7,11 +7,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from config import MODELS_DIR
 
 logger = logging.getLogger("triage.stt")
 router = APIRouter(tags=["stt"])
-
-from config import MODELS_DIR
 
 WHISPER_DIR = MODELS_DIR / "faster-whisper-base"
 

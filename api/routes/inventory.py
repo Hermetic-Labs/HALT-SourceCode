@@ -147,9 +147,9 @@ def add_inventory_location(loc: InventoryLocation):
     """Add a new inventory location."""
     path = inventory_locations_path()
     locs = read_json(path) if path.exists() else [{"id": "loc-1", "name": "Main Supply Room"}]
-    for l in locs:
-        if l["id"] == loc.id:
-            l["name"] = loc.name
+    for loc_entry in locs:
+        if loc_entry["id"] == loc.id:
+            loc_entry["name"] = loc.name
             write_json(path, locs)
             return loc
     locs.append(loc.model_dump())
@@ -162,9 +162,9 @@ def update_inventory_location(id: str, loc: InventoryLocation):
     """Update an existing inventory location."""
     path = inventory_locations_path()
     locs = read_json(path) if path.exists() else [{"id": "loc-1", "name": "Main Supply Room"}]
-    for l in locs:
-        if l["id"] == id:
-            l["name"] = loc.name
+    for loc_entry in locs:
+        if loc_entry["id"] == id:
+            loc_entry["name"] = loc.name
             write_json(path, locs)
             return loc
     raise HTTPException(status_code=404, detail="Location not found")
@@ -178,7 +178,7 @@ def delete_inventory_location(id: str):
     path = inventory_locations_path()
     locs = read_json(path) if path.exists() else [{"id": "loc-1", "name": "Main Supply Room"}]
     initial_length = len(locs)
-    locs = [l for l in locs if l.get("id") != id]
+    locs = [loc_entry for loc_entry in locs if loc_entry.get("id") != id]
     if len(locs) == initial_length:
         raise HTTPException(status_code=404, detail="Location not found")
     write_json(path, locs)

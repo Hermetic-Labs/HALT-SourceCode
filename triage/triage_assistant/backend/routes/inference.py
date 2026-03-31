@@ -6,6 +6,7 @@ import os
 import json
 import time
 import logging
+import threading
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -54,8 +55,6 @@ def _get_llm():
 
 
 # Pre-load at import time so first request has no warm-up delay
-import threading
-
 threading.Thread(target=_get_llm, daemon=True).start()
 
 

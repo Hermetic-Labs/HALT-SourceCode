@@ -403,11 +403,9 @@ def lint_html():
         print("    No HTML files found.")
         return 0
 
-    file_args = [rel_path(f) for f in files]
     issues = 0
 
     for fpath in files:
-        rel = rel_path(fpath)
         cmd = ["npx", "-y", "html-validate@latest", str(fpath)]
         code, out, err = run_tool(cmd, label="html-validate")
 

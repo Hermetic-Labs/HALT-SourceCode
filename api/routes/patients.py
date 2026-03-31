@@ -123,7 +123,8 @@ class PatientSummary(BaseModel):
 def public_lookup_qr(request: Request):
     """Generate a QR code linking directly to the family-facing patient lookup page (/lookup).
     Intended for printing and displaying at reception so families can self-serve."""
-    import io, base64
+    import io
+    import base64
     from routes.mesh import _get_local_ip
 
     port = request.url.port or request.scope.get("server", [None, 7778])[1]

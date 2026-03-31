@@ -23,11 +23,10 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from config import MODELS_DIR
 
 logger = logging.getLogger("triage.tts")
 router = APIRouter(tags=["tts"])
-
-from config import MODELS_DIR
 
 MODEL_PATH = MODELS_DIR / "kokoro-v1.0.onnx"
 VOICES_PATH = MODELS_DIR / "voices-v1.0.bin"
