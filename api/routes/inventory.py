@@ -224,7 +224,8 @@ async def consume_inventory(
     # Resolve location name for the log
     loc_name = _resolve_location_name(target.get("locationId", "loc-1"))
     item_label = f"{target.get('name', id)} [{loc_name}]"
-    log_activity(modified_by or "unknown", f"consumed {restock.amount}x", item_label)
+    log_activity(modified_by or "unknown", f"consumed {restock.amount}x", item_label,
+                 action_type="consumed", qty=restock.amount)
 
     # ── Auto-alert on critical stock ──────────────────────────────────────
     qty = target.get("quantity", 0)
@@ -318,20 +319,9 @@ async def restock_inventory(
         raise HTTPException(status_code=404, detail="Inventory item not found.")
     write_json(inventory_path(), inv)
     loc_name = _resolve_location_name(target.get("locationId", "loc-1"))
-    log_activity(modified_by or "unknown", f"restocked {restock.amount}x", f"{target.get('name', id)} [{loc_name}]")
+    log_activity(modified_by or "unknown", f"restocked {restock.amount}x", f"{target.get('name', id)} [{loc_name}]",
+                 action_type="restocked", qty=restock.amount)
     return target
-
-
-@router.delete("/api/inventory/{id}")
-def delete_inventory_item(id: str):
-    """Delete a specific inventory item by ID."""
-    inv = load_inventory()
-    initial_length = len(inv)
-    inv = [item for item in inv if item.get("id") != id]
-    if len(inv) == initial_length:
-        raise HTTPException(status_code=404, detail="Inventory item not found")
-    write_json(inventory_path(), inv)
-    return {"status": "ok", "deleted": id}
 
 
 @router.get("/api/inventory/activity")
@@ -374,3 +364,15 @@ def clear_inventory_activity():
         return {"status": "ok", "removed": removed}
     except Exception:
         return {"status": "ok", "removed": 0}
+
+
+@router.delete("/api/inventory/{id}")
+def delete_inventory_item(id: str):
+    """Delete a specific inventory item by ID."""
+    inv = load_inventory()
+    initial_length = len(inv)
+    inv = [item for item in inv if item.get("id") != id]
+    if len(inv) == initial_length:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    write_json(inventory_path(), inv)
+    return {"status": "ok", "deleted": id}

@@ -37,7 +37,7 @@ CHECKS = [
     ("Python runtime", "python.exe"),
     ("viewer index",   "index.html"),
     ("MANIFEST",       "MANIFEST.sha256"),
-    ("Splash logo",    "halt transparent.png"),   # missing = splash shows plain text fallback
+    ("Splash logo",    "logo.png"),              # Electron splash screen logo
 ]
 
 

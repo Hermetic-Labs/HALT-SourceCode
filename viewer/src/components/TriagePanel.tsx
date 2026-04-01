@@ -112,10 +112,12 @@ export default function TriagePanel({ onClose }: { onClose: () => void }) {
                 const d = await r.json();
                 const translated = d.translated || textToTranslate;
                 setTranslateOutput(translated);
-                // Auto-play through Kokoro TTS — pass the explicitly translated target language
-                queueMicrotask(() => speak(translated, -1, translateTo));
+                // Auto-play through Kokoro TTS — wrapped in try/catch to prevent white-screen on TTS failure
+                try { queueMicrotask(() => speak(translated, -1, translateTo)); } catch { /* TTS unavailable */ }
+            } else {
+                setTranslateOutput(t('triage.translate_failed', 'Translation service unavailable'));
             }
-        } catch { setTranslateOutput('Translation unavailable offline'); }
+        } catch { setTranslateOutput(t('triage.translate_offline', 'Translation unavailable offline')); }
         setTranslating(false);
     };
 
@@ -325,11 +327,17 @@ export default function TriagePanel({ onClose }: { onClose: () => void }) {
                 }
             }
 
-            setMessages(prev => [...prev, { role: 'assistant', content: full }]);
+            // Empty response guard — show error card if AI returned nothing
+            if (!full.trim()) {
+                setMessages(prev => [...prev, { role: 'assistant', content: t('triage.empty_response', 'The AI model did not return a response. This can happen when the model is still loading or the request was too complex. Please try again.') }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: full }]);
+            }
             setStreamingText('');
 
         } catch (e) {
-            setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${(e as Error).message}` }]);
+            const errMsg = (e as Error).message || 'Unknown error';
+            setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${t('triage.error_prefix', 'Error')}: ${errMsg}` }]);
             setStreamingText('');
         } finally {
             setIsSending(false);
@@ -453,7 +461,21 @@ export default function TriagePanel({ onClose }: { onClose: () => void }) {
 
                 <div style={{ flex: 1 }} />
 
-
+                {messages.length > 0 && (
+                    <button
+                        className="triage-close-btn"
+                        onClick={() => {
+                            if (!window.confirm('Clear this conversation?')) return;
+                            setMessages([]);
+                            setActiveThreadId(null);
+                            setStreamingText('');
+                            setTriageTranslations({});
+                            Object.keys(triageTranslationCache).forEach(k => delete triageTranslationCache[k]);
+                        }}
+                        title="Clear chat"
+                        style={{ fontSize: 14 }}
+                    >🗑</button>
+                )}
 
                 <button className="triage-close-btn" onClick={onClose}>×</button>
             </header>
@@ -632,6 +654,22 @@ export default function TriagePanel({ onClose }: { onClose: () => void }) {
                 </div>
             ))}
 
+                {/* Processing indicator — visible while waiting for response */}
+                {isSending && !streamingText && (
+                    <div className="triage-row assistant">
+                        <div className="triage-lbl">TRIAGE AI</div>
+                        <div className="triage-bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{
+                                width: 16, height: 16, borderRadius: '50%',
+                                border: '2px solid #39d35344',
+                                borderTopColor: '#39d353',
+                                animation: 'spin 0.8s linear infinite',
+                                flexShrink: 0
+                            }} />
+                            <span style={{ color: '#4d6077', fontSize: 12 }}>{t('triage.processing', 'Processing...')}</span>
+                        </div>
+                    </div>
+                )}
                 {streamingText && (
                     <div className="triage-row assistant">
                         <div className="triage-lbl">TRIAGE AI</div>
@@ -647,7 +685,7 @@ export default function TriagePanel({ onClose }: { onClose: () => void }) {
             <footer className="triage-footer">
                 <div className="triage-input-row">
                     <button
-                        className={`triage-mic-btn ${isRecording ? 'rec' : ''}`}
+                        className={`triage-mic-btn ${isRecording ? 'rec' : ''} triage-mic-desktop-only`}
                         onClick={handleMic}
                         title="Voice input"
                     >

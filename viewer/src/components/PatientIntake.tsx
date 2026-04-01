@@ -14,7 +14,7 @@ interface AttachmentFile { name: string; type: string; size: number; url: string
 
 // ─── Local Helpers ──────────────────────────────────────────────────────────
 
-const now = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const now = () => { const d = new Date(); const pad = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
 const INITIAL: PatientData = {
@@ -206,7 +206,7 @@ function Step2({ d, s }: { d: PatientData; s: Setter }) {
             <div className="if-section-label">{t('intake.situation')}</div>
             <div className="if-row">
                 <Field label={t("intake.injury_time")} hint={t("intake.injury_time_hint")}>
-                    <input className="if-input" style={{ width: 120 }} type="time" value={d.injuryTime}
+                    <input className="if-input" style={{ width: 220 }} type="datetime-local" value={d.injuryTime}
                         onChange={e => s(p => ({ ...p, injuryTime: e.target.value }))} />
                 </Field>
             </div>
@@ -796,7 +796,7 @@ export default function PatientIntake() {
                             <div className="if-finalized" style={{ marginTop: 20 }}>
                                 <div style={{ color: '#3fb950', fontWeight: 600, marginBottom: 8 }}>{t('intake.record_saved')}</div>
                                 <div className="if-hint">ID: {savedId}</div>
-                                <div className="if-hint">Room {data.roomNumber || t('intake.unknown')}</div>
+                                <div className="if-hint">{t('intake.bed_label', 'Bed')} {data.roomNumber || t('intake.unknown')}</div>
                                 <button className="intake-next-btn" style={{ marginTop: 12, background: 'var(--surface2)', color: 'var(--text)' }} onClick={reset}>{t('intake.new_patient')}</button>
                             </div>
                         )}

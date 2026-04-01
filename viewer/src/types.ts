@@ -114,6 +114,13 @@ export interface PatientEvent {
     data?: Record<string, unknown>;
 }
 
+export interface NoteEntry {
+    id: string;
+    text: string;
+    author: string;
+    timestamp: string;
+}
+
 export interface PatientRecord {
     id: string;
     name: string;
@@ -141,6 +148,7 @@ export interface PatientRecord {
     };
     events: PatientEvent[];
     notes: string;
+    noteEntries?: NoteEntry[];  // structured notes with author + date
     attachmentNames: string[];
     nextOfKin: string;
     spokenLanguage: string;

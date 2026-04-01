@@ -95,6 +95,13 @@ export function useChat({ userName, userRole, lang, isLeader, callActive }: UseC
         prevMsgCountRef.current = messages.length;
     }, [messages]);
 
+    // ── Clear ────────────────────────────────────────────────────────────────
+
+    const clearMessages = useCallback(() => {
+        setMessages([]);
+        cacheMessages(userName, []);
+    }, [userName]);
+
     // ── Send ─────────────────────────────────────────────────────────────────
 
     const sendMessage = useCallback(async (replyTo?: string) => {
@@ -202,7 +209,7 @@ export function useChat({ userName, userRole, lang, isLeader, callActive }: UseC
         messages, roster, newMsg, setNewMsg,
         targetContact, setTargetContact,
         messagesEndRef,
-        sendMessage, fetchMessages, fetchRoster,
+        sendMessage, fetchMessages, fetchRoster, clearMessages,
         connectedMembers, filteredMessages, callableMembers,
         formatTime,
     };

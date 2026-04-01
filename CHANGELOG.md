@@ -4,6 +4,35 @@ All notable changes to HALT will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] — 2026-04-01
+
+### Added
+
+- Model readiness health gate — startup polls `/health` and shows GGUF/ONNX/Whisper status before UI access
+- Processing indicator in Triage AI — pulsing spinner while waiting for LLM response
+- Empty response guard — error card when AI returns nothing instead of silent blank
+- Structured inventory activity log — `action_type` + `qty` fields for full i18n of "Took 5x" / "Added 3x"
+- Client-side patient lookup — fetches all opted-in patients on mount, live filters as you type
+- 14 new i18n keys: triage errors, inventory verbs, lookup status, discharge labels
+- Feature list audit: 20 → 24 features (added Family Lookup, Ward Printing, Discharge QR, 42-Language UI, Low Power, Encryption)
+
+### Fixed
+
+- Electron print workflow — replaced `window.open` (blocked by Electron) with iframe-based `printViaIframe()` helper
+- TTS crash on translate — wrapped auto-play in try/catch to prevent white-screen on Kokoro failure
+- Mobile mic button hidden — uses native keyboard voice input instead of unreliable custom recorder
+- Mobile tap targets — close/send buttons enlarged to 44×44px minimum per accessibility guidelines
+- Public patient lookup endpoint — added `?all=1` parameter for client-side filtering architecture
+
+### Changed
+
+- Status badge: alpha → beta
+- README feature table audited against actual codebase (24 features verified)
+- macOS platform status: "🟡 Needs portable Python" → "✅ Planned" (native Mac build approach)
+- Version synced across: README, FEATURES.md, api/main.py, start.py, electron-launcher/package.json
+
+---
+
 ## [1.0.3] — 2026-03-29
 
 ### Added

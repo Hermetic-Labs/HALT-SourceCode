@@ -164,7 +164,8 @@ body,
   .topbar-title {
     display: none;
   }
-  .tab-bar,
+  /* Hide only the topbar's tabs, NOT ward-panel inner tabs */
+  .topbar .tab-bar,
   .settings-btn {
     display: none !important;
   }
@@ -176,6 +177,26 @@ body,
   .ward-panel {
     width: 100% !important;
     max-width: 100vw !important;
+  }
+  /* Ward panel inner tab-bar: horizontal scroll on narrow screens */
+  .ward-panel .tab-bar {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .ward-panel .tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Triage panel: overlay on mobile instead of side-by-side */
+  .triage-container {
+    position: fixed !important;
+    top: 48px;
+    right: 0;
+    bottom: 0;
+    width: 100vw !important;
+    max-width: 100vw;
+    z-index: 90;
   }
 }
 

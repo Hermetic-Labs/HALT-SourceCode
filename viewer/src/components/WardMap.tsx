@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import type { PatientRecord, PatientSummary, PatientEvent, WardConfig } from '../types';
+import type { PatientRecord, PatientSummary, PatientEvent, WardConfig, NoteEntry } from '../types';
 import * as store from '../services/PatientStore';
 import { useT } from '../services/i18n';
 import { normalizeToEnglish, precomputeAllLocales, flushPatientTranslations, hydratePatientTranslations, hasPatientTranslations, pt } from '../services/i18nDynamic';
@@ -125,19 +125,31 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
         }
     }, [record, lang, wards]);
 
-    // Export with spinner
+    // QR Discharge Flow
     const [exporting, setExporting] = useState(false);
+    const [qrModal, setQrModal] = useState<{ url: string; qr_image: string | null } | null>(null);
     const handleExport = async () => {
         setExporting(true);
         try {
-            const res = await fetch(`/api/patients/${summary.id}/export?lang=${lang}`);
-            const html = await res.text();
-            const blob = new Blob([html], { type: 'text/html' });
-            window.open(URL.createObjectURL(blob), '_blank');
+            const res = await fetch(`/api/patients/${summary.id}/discharge-qr?lang=${lang}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.qr_image) {
+                    setQrModal(data);
+                } else {
+                    // Fallback: open export directly
+                    window.open(data.url, '_blank');
+                }
+            } else {
+                // Fallback: open HTML export
+                const htmlRes = await fetch(`/api/patients/${summary.id}/export?lang=${lang}`);
+                const html = await htmlRes.text();
+                const blob = new Blob([html], { type: 'text/html' });
+                window.open(URL.createObjectURL(blob), '_blank');
+            }
         } catch { /* offline */ }
         setExporting(false);
     };
-
 
 
     const handleAddEvent = async (evt: Omit<PatientEvent, 'id' | 'timestamp'>) => {
@@ -235,6 +247,8 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
     const [showWardChange, setShowWardChange] = useState(false);
     const [showDischarge, setShowDischarge] = useState(false);
     const [dischargeNotes, setDischargeNotes] = useState('');
+    const [noteText, setNoteText] = useState('');
+    const [showNoteForm, setShowNoteForm] = useState(false);
 
     // Tourniquet Timer State
     const [tqTimers, setTqTimers] = useState<{ site: string; appliedAt: number }[]>([]);
@@ -394,7 +408,7 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
                         </div>
                         <div style={{ display: 'flex', gap: 12, color: 'var(--text-dim)', fontSize: 13, flexWrap: 'wrap' }}>
                             <span>{t('ward.ward_label')}: {pt(summary.id, lang, wards.find(w => w.id === (record?.wardId || summary.wardId || activeWardId))?.name || '') || t('ward.unassigned')}</span>
-                            <span>{t('ward.room_label')}: {record?.roomNumber || summary.roomNumber || t('ward.none')}</span>
+                            <span>{t('intake.bed_label', 'Bed')}: {record?.roomNumber || summary.roomNumber || t('ward.none')}</span>
                             <button
                                 onClick={() => setShowWardChange(!showWardChange)}
                                 style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}
@@ -429,8 +443,8 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
                         )}
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
-                        <button onClick={handleExport} disabled={exporting} style={{ fontSize: 12, padding: '4px 8px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }} title="Print-ready patient export">
-                            {exporting ? <><div style={{ width: 12, height: 12, border: '2px solid #50C87844', borderTop: '2px solid #50C878', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />{t('ward.translating')}</> : <>📄 {t('ward.export')}</>}
+                        <button onClick={handleExport} disabled={exporting} style={{ fontSize: 12, padding: '4px 8px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }} title="Discharge QR">
+                            {exporting ? <><div style={{ width: 12, height: 12, border: '2px solid #50C87844', borderTop: '2px solid #50C878', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />{t('ward.translating')}</> : <>📱 {t('ward.discharge_qr_title', 'Discharge QR')}</>}
                         </button>
                         <button onClick={onClose} style={{ fontSize: 22, padding: '2px 8px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-muted)', cursor: 'pointer', lineHeight: 1, fontWeight: 700 }} title="Back">←</button>
                     </div>
@@ -495,29 +509,12 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
                                         if (!record) return;
                                         setSaving(true);
                                         try {
-                                            // Normalize discharge notes to English
-                                            let finalDischargeNotes = dischargeNotes;
-                                            if (lang !== 'en' && dischargeNotes.trim()) {
-                                                const { english } = await normalizeToEnglish(dischargeNotes, lang);
-                                                finalDischargeNotes = english;
-                                            }
-                                            // Log discharge event with notes
-                                            await handleAddEvent({
-                                                type: 'status_change',
-                                                summary: `Patient discharged.${finalDischargeNotes ? ' Notes: ' + finalDischargeNotes : ''}`
-                                            });
-                                            // Flush per-patient translations and archive
-                                            const archivedI18n = flushPatientTranslations(record.id);
-                                            // Update status, clear ward/room, archive translations
-                                            const updated = await store.updatePatient(record.id, {
-                                                ...record,
-                                                status: 'discharged',
-                                                wardId: '',
-                                                roomNumber: '',
-                                                ...(archivedI18n ? { i18n: archivedI18n } : {}),
-                                            });
-                                            setRecord(updated);
-                                            onUpdated(updated);
+                                            // Flush local translation cache
+                                            flushPatientTranslations(record.id);
+                                            // Hard purge — removes JSON + attachments from server
+                                            await store.purgePatient(record.id);
+                                            // Notify parent that patient is gone
+                                            onUpdated({ ...record, status: 'discharged' } as PatientRecord);
                                             setShowDischarge(false);
                                             setDischargeNotes('');
                                             onClose();
@@ -618,13 +615,112 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
                                 ) : null;
                             })()}
 
-                            {/* Notes */}
-                            {record.notes && (
-                                <div style={{ marginTop: 16 }}>
-                                    <h3 style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>{t("ward.notes")}</h3>
-                                    <div className="ward-notes">{pt(record.id, lang, record.notes || '')}</div>
-                                </div>
-                            )}
+                            {/* Notes — structured entries with author/date */}
+                            <div style={{ marginTop: 16 }}>
+                                <h3 style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid var(--border)', paddingBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    {t("ward.notes")}
+                                    <button
+                                        className="if-toggle"
+                                        style={{ fontSize: 11, padding: '2px 8px', textTransform: 'none', letterSpacing: 0 }}
+                                        onClick={() => setShowNoteForm(!showNoteForm)}
+                                    >{showNoteForm ? t('ward.cancel', 'Cancel') : t('ward.add_note', '+ Add Note')}</button>
+                                </h3>
+
+                                {/* Add note form */}
+                                {showNoteForm && (
+                                    <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+                                        <input
+                                            className="if-input"
+                                            style={{ flex: 1, fontSize: 13, padding: '8px 12px' }}
+                                            placeholder={t('ward.note_placeholder', 'Type a note...')}
+                                            value={noteText}
+                                            onChange={e => setNoteText(e.target.value)}
+                                            onKeyDown={async e => {
+                                                if (e.key === 'Enter' && noteText.trim()) {
+                                                    const author = localStorage.getItem('eve-mesh-name') || 'Unknown';
+                                                    let finalText = noteText.trim();
+                                                    if (lang !== 'en') {
+                                                        try {
+                                                            const { english } = await normalizeToEnglish(finalText, lang);
+                                                            finalText = english;
+                                                        } catch { /* use original */ }
+                                                    }
+                                                    const entry: NoteEntry = {
+                                                        id: `NOTE-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                                                        text: finalText,
+                                                        author,
+                                                        timestamp: new Date().toISOString(),
+                                                    };
+                                                    const updated = await store.updatePatient(record.id, {
+                                                        ...record,
+                                                        noteEntries: [...(record.noteEntries || []), entry],
+                                                    });
+                                                    setRecord(updated);
+                                                    onUpdated(updated);
+                                                    setNoteText('');
+                                                    setShowNoteForm(false);
+                                                }
+                                            }}
+                                        />
+                                        <button
+                                            className="intake-next-btn"
+                                            style={{ padding: '8px 16px', fontSize: 13 }}
+                                            disabled={!noteText.trim()}
+                                            onClick={async () => {
+                                                if (!noteText.trim()) return;
+                                                const author = localStorage.getItem('eve-mesh-name') || 'Unknown';
+                                                let finalText = noteText.trim();
+                                                if (lang !== 'en') {
+                                                    try {
+                                                        const { english } = await normalizeToEnglish(finalText, lang);
+                                                        finalText = english;
+                                                    } catch { /* use original */ }
+                                                }
+                                                const entry: NoteEntry = {
+                                                    id: `NOTE-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                                                    text: finalText,
+                                                    author,
+                                                    timestamp: new Date().toISOString(),
+                                                };
+                                                const updated = await store.updatePatient(record.id, {
+                                                    ...record,
+                                                    noteEntries: [...(record.noteEntries || []), entry],
+                                                });
+                                                setRecord(updated);
+                                                onUpdated(updated);
+                                                setNoteText('');
+                                                setShowNoteForm(false);
+                                            }}
+                                        >{t('ward.save_note', 'Save')}</button>
+                                    </div>
+                                )}
+
+                                {/* Intake notes (legacy plain text) */}
+                                {record.notes && (
+                                    <div style={{ padding: '10px 12px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 8, fontSize: 13 }}>
+                                        <div style={{ fontSize: 10, color: 'var(--text-faint)', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>{t('ward.intake_notes', 'Intake Notes')}</span>
+                                            <span>{new Date(record.admittedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                        </div>
+                                        <div className="ward-notes">{pt(record.id, lang, record.notes || '')}</div>
+                                    </div>
+                                )}
+
+                                {/* Structured note entries */}
+                                {(record.noteEntries || []).slice().reverse().map(note => (
+                                    <div key={note.id} style={{ padding: '10px 12px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 8, fontSize: 13 }}>
+                                        <div style={{ fontSize: 10, color: 'var(--text-faint)', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ fontWeight: 600, color: 'var(--text-dim)' }}>{note.author}</span>
+                                            <span>{new Date(note.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                        </div>
+                                        <div>{pt(record.id, lang, note.text)}</div>
+                                    </div>
+                                ))}
+
+                                {!record.notes && !(record.noteEntries?.length) && (
+                                    <div className="if-hint">{t('ward.no_notes', 'No notes yet')}</div>
+                                )}
+                            </div>
 
                             {/* Attachments */}
                             {record.attachmentNames?.length > 0 && (
@@ -806,6 +902,49 @@ export function PatientPanel({ summary, wards, activeWardId, onClose, onUpdated 
                     {/* Actions Spacer Removed */}
                 </div>
             )}
+
+            {/* QR Discharge Modal */}
+            {qrModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: 'var(--surface)', padding: 32, borderRadius: 16, maxWidth: 400, textAlign: 'center', border: '1px solid var(--border)' }}>
+                        <h3 style={{ marginBottom: 16, color: 'var(--text)', fontSize: 18 }}>{t('ward.discharge_qr_title', 'Patient Discharge')}</h3>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+                            {t('ward.discharge_qr_desc', 'Have the patient scan this QR code on their device to receive their medical records.')}
+                        </p>
+                        {qrModal.qr_image && (
+                            <img src={qrModal.qr_image} alt="Discharge QR" style={{ width: 240, height: 240, margin: '0 auto 16px', display: 'block', borderRadius: 8, background: '#fff', padding: 8 }} />
+                        )}
+                        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 20, wordBreak: 'break-all' }}>{qrModal.url}</div>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                            <button
+                                className="intake-next-btn"
+                                style={{ background: '#e74c3c', borderColor: '#e74c3c' }}
+                                onClick={async () => {
+                                    if (!record) return;
+                                    if (!window.confirm(t('ward.confirm_purge', 'Confirm discharge and purge patient from system?'))) return;
+                                    setSaving(true);
+                                    try {
+                                        // Flush local translation cache
+                                        flushPatientTranslations(record.id);
+                                        // Hard purge — removes JSON + attachments from server
+                                        await store.purgePatient(record.id);
+                                        // Notify parent that patient is gone
+                                        onUpdated({ ...record, status: 'discharged' } as PatientRecord);
+                                        setQrModal(null);
+                                        onClose();
+                                    } catch (e) {
+                                        alert('Discharge failed: ' + (e instanceof Error ? e.message : String(e)));
+                                    } finally {
+                                        setSaving(false);
+                                    }
+                                }}
+                                disabled={saving}
+                            >{saving ? t('ward.processing') : t('ward.confirm_discharge_purge', 'Confirm Discharge & Purge')}</button>
+                            <button className="intake-back-btn" onClick={() => setQrModal(null)}>{t('ward.cancel')}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -917,6 +1056,39 @@ export default function WardMap() {
     const [loading, setLoading] = useState(true);
     const [apiOk, setApiOk] = useState<boolean | null>(null);
     const [editingWard, setEditingWard] = useState<WardConfig | null>(null);
+
+    // Iframe-based print helper — works in Electron without pop-up blocks
+    const printViaIframe = useCallback((html: string) => {
+        const existing = document.getElementById('halt-print-frame');
+        if (existing) existing.remove();
+        const iframe = document.createElement('iframe');
+        iframe.id = 'halt-print-frame';
+        iframe.style.cssText = 'position:fixed;top:-10000px;left:-10000px;width:0;height:0;border:none;';
+        document.body.appendChild(iframe);
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!doc) return;
+        doc.open();
+        doc.write(html);
+        doc.close();
+        // Wait for content to render before printing
+        iframe.onload = () => {
+            try {
+                iframe.contentWindow?.focus();
+                iframe.contentWindow?.print();
+            } catch { /* print blocked */ }
+            // Clean up after print dialog closes
+            setTimeout(() => iframe.remove(), 2000);
+        };
+        // Fallback: trigger print if onload doesn't fire (some browsers)
+        setTimeout(() => {
+            try {
+                if (document.getElementById('halt-print-frame')) {
+                    iframe.contentWindow?.focus();
+                    iframe.contentWindow?.print();
+                }
+            } catch { /* noop */ }
+        }, 500);
+    }, []);
 
     const loadWards = useCallback(async (selectId?: string) => {
         try {
@@ -1043,11 +1215,8 @@ export default function WardMap() {
                         <span className="if-hint">{active.length} {active.length !== 1 ? t('ward.active_patients') : t('ward.active_patient')}</span>
                         <button className="if-toggle" onClick={() => {
                             if (!config) return;
-                            const w = window.open('', '_blank');
-                            if (!w) return;
                             const wardName = pt(config.id, lang, config.name) || config.name;
                             const roomsLabel = t('ward.rooms_count', 'rooms');
-                            const printLabel = t('ward.print_all_labels', 'Print All Labels');
                             const roomLabels = config.rooms.map(r =>
                                 `<div style="page-break-after:always;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center">
                                     <div>
@@ -1056,11 +1225,10 @@ export default function WardMap() {
                                     </div>
                                 </div>`
                             ).join('');
-                            w.document.write(`<html><head><title>${wardName} — Labels</title>
+                            printViaIframe(`<html><head><title>${wardName} — Labels</title>
                                 <style>
                                     * { margin:0; padding:0; box-sizing:border-box; }
                                     body { font-family: system-ui, -apple-system, sans-serif; color: #111; }
-                                    @media print { .no-print { display:none; } }
                                 </style></head><body>
                                 <div style="page-break-after:always;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center">
                                     <div>
@@ -1069,17 +1237,13 @@ export default function WardMap() {
                                     </div>
                                 </div>
                                 ${roomLabels}
-                                <div class="no-print" style="position:fixed;bottom:20px;right:20px;display:flex;gap:8px">
-                                    <button onclick="window.print()" style="padding:12px 28px;font-size:16px;cursor:pointer;border:1px solid #ccc;border-radius:8px;background:#f8f8f8">🖨 ${printLabel}</button>
-                                </div>
                             </body></html>`);
                         }}>🏷️ {t('ward.print_labels', 'Print Labels')}</button>
                         <button className="if-toggle" onClick={async () => {
                             try {
                                 const res = await fetch(`/api/reports/shift?lang=${lang}`);
                                 const html = await res.text();
-                                const blob = new Blob([html], { type: 'text/html' });
-                                window.open(URL.createObjectURL(blob), '_blank');
+                                printViaIframe(html);
                             } catch { /* API offline */ }
                         }}>🖨️ {t('ward.shift_report')}</button>
                         <button className="if-toggle" onClick={() => {

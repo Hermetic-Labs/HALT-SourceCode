@@ -370,4 +370,30 @@
 .triage-pill.on::after {
     transform: translateX(14px);
 }
+
+/* ── Mobile: hide mic button (use native keyboard voice input instead) ── */
+@media (max-width: 768px) {
+    .triage-mic-desktop-only {
+        display: none !important;
+    }
+
+    .triage-close-btn {
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .triage-header {
+        gap: 6px;
+        padding: 8px 12px;
+    }
+
+    .triage-send-btn {
+        min-height: 44px;
+        min-width: 60px;
+    }
+}
+
 

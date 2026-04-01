@@ -94,7 +94,12 @@ class ProcessManager:
             try:
                 log("STOP", f"Stopping {name}...", Colors.YELLOW)
                 if IS_WINDOWS:
-                    proc.terminate()
+                    # Kill the entire process tree — proc.terminate() only kills
+                    # the parent, leaving uvicorn workers orphaned on the port.
+                    subprocess.run(
+                        ["taskkill", "/pid", str(proc.pid), "/T", "/F"],
+                        capture_output=True, timeout=5,
+                    )
                 else:
                     proc.terminate()
                 proc.wait(timeout=5)
@@ -104,6 +109,34 @@ class ProcessManager:
             except Exception as e:
                 log("WARN", f"Error stopping {name}: {e}", Colors.YELLOW)
         self.processes.clear()
+
+        # Final port sweep — kill anything still holding our ports
+        if IS_WINDOWS:
+            self._kill_port_holders()
+
+    def _kill_port_holders(self):
+        """Kill any leftover processes on HALT's ports."""
+        import socket
+        for port in [7778]:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
+                    pass
+                # Port is still in use — nuclear option
+                result = subprocess.run(
+                    f"netstat -ano | findstr :{port} | findstr LISTENING",
+                    capture_output=True, text=True, shell=True, timeout=5,
+                )
+                for line in result.stdout.strip().splitlines():
+                    parts = line.strip().split()
+                    pid = int(parts[-1])
+                    if pid > 0:
+                        subprocess.run(
+                            ["taskkill", "/pid", str(pid), "/T", "/F"],
+                            capture_output=True, timeout=5,
+                        )
+                        log("STOP", f"Killed orphan PID {pid} on port {port}", Colors.YELLOW)
+            except (socket.timeout, ConnectionRefusedError, OSError, Exception):
+                pass  # Port is clean
 
     def is_any_running(self):
         return any(p.poll() is None for _, p in self.processes if p)
@@ -218,7 +251,7 @@ def ensure_models(root_dir):
 
         # Add explicit User-Agent to bypass Cloudflare R2's 403 Forbidden block
         opener = urllib.request.build_opener()
-        opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) HALT/1.0.3')]
+        opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) HALT/1.0.5')]
         urllib.request.install_opener(opener)
 
         urllib.request.urlretrieve(MODELS_URL, zip_path, reporthook=report)

@@ -122,27 +122,19 @@ function playTracked(audio: HTMLAudioElement, signal: AbortSignal): Promise<void
     });
 }
 
-/** Abortable wait */
-function waitAbortable(ms: number, signal: AbortSignal): Promise<void> {
-    return new Promise((resolve, reject) => {
-        if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
-        const t = setTimeout(resolve, ms);
-        signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); }, { once: true });
-    });
-}
 
 /**
- * playEmergencySequence — Cadence: 🔊🔊 TTS 🔊🔊 TTS 🔊
- * Uses pregenerated audio_b64 from broadcast — no Kokoro call.
+ * playEmergencySequence — Simplified: alarm × 2 → play blob → done.
+ * The blob already contains all languages stitched together.
  * Aborts any in-progress cadence before starting.
  */
-async function playEmergencySequence(text: string, lang: string, audio_b64?: string) {
+async function playEmergencySequence(audio_b64?: string, text?: string, lang?: string) {
     abortCadence();
     const ac = new AbortController();
     _cadenceAbort = ac;
     const signal = ac.signal;
 
-    const ttsAudio = audio_b64 ? audioFromB64(audio_b64) : await fetchTTSAudio(text, lang);
+    const ttsAudio = audio_b64 ? audioFromB64(audio_b64) : (text ? await fetchTTSAudio(text, lang || 'en') : null);
     const toneSrc = '/data/sounds/triage announcement.wav';
 
     const playTone = () => {
@@ -150,31 +142,22 @@ async function playEmergencySequence(text: string, lang: string, audio_b64?: str
         return playTracked(a, signal);
     };
 
-    const playTTS = async () => {
-        if (!ttsAudio) return;
-        ttsAudio.currentTime = 0;
-        return playTracked(ttsAudio, signal);
-    };
-
     try {
         await playTone();
         await playTone();
-        await playTTS();
-        await waitAbortable(1000, signal);
-        await playTone();
-        await playTone();
-        await playTTS();
-        await waitAbortable(1000, signal);
-        await playTone();
+        if (ttsAudio) {
+            ttsAudio.currentTime = 0;
+            await playTracked(ttsAudio, signal);
+        }
     } catch (e) { if (e instanceof DOMException && e.name === 'AbortError') return; /* interrupted — graceful */ }
 }
 
 /**
- * playAnnouncementSequence — Cadence: General_start 🔊 → TTS → pause → repeat → General_end 🔊
- * Uses pregenerated audio_b64 from broadcast — no Kokoro call.
+ * playAnnouncementSequence — Simplified: start tone → play blob → end tone → done.
+ * The blob already contains all languages stitched together.
  * Aborts any in-progress cadence before starting.
  */
-async function playAnnouncementSequence(text: string, lang: string, audio_b64?: string) {
+async function playAnnouncementSequence(audio_b64?: string, text?: string, lang?: string) {
     abortCadence();
     const ac = new AbortController();
     _cadenceAbort = ac;
@@ -182,26 +165,19 @@ async function playAnnouncementSequence(text: string, lang: string, audio_b64?: 
 
     const startSrc = '/data/sounds/General_start.wav';
     const endSrc = '/data/sounds/General_end.wav';
-    const ttsAudio = audio_b64 ? audioFromB64(audio_b64) : await fetchTTSAudio(text, lang);
+    const ttsAudio = audio_b64 ? audioFromB64(audio_b64) : (text ? await fetchTTSAudio(text, lang || 'en') : null);
 
     const playSound = (src: string) => {
         const a = new Audio(src); a.volume = 0.8;
         return playTracked(a, signal);
     };
 
-    const playTTS = async () => {
-        if (!ttsAudio) return;
-        ttsAudio.currentTime = 0;
-        return playTracked(ttsAudio, signal);
-    };
-
     try {
         await playSound(startSrc);
-        await playTTS();
-        await waitAbortable(1000, signal);
-        await playSound(startSrc);
-        await playTTS();
-        await waitAbortable(1000, signal);
+        if (ttsAudio) {
+            ttsAudio.currentTime = 0;
+            await playTracked(ttsAudio, signal);
+        }
         await playSound(endSrc);
     } catch (e) { if (e instanceof DOMException && e.name === 'AbortError') return; /* interrupted — graceful */ }
 }
@@ -561,36 +537,19 @@ export default function NetworkTab() {
                     closeBtn.onclick = (e) => { e.stopPropagation(); dismissOverlay(); };
                     banner.appendChild(closeBtn);
 
-                    // 🔊 Speaker button for non-English on-demand TTS
-                    if (userLang !== 'en') {
+                    // 🔊 Replay button — replays the cached multi-language blob
+                    const eAudioB64 = msg.audio_b64 ? String(msg.audio_b64) : undefined;
+                    if (eAudioB64) {
                         const speakerBtn = document.createElement('button');
-                        speakerBtn.innerHTML = '🔊';
-                        speakerBtn.title = 'Listen in your language';
-                        speakerBtn.style.cssText = 'position:relative;margin-top:12px;padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:#fff;font-size:16px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
-                        // Queue position badge
-                        const badge = document.createElement('span');
-                        badge.style.cssText = 'display:none;position:absolute;top:-6px;right:-6px;background:#f0a500;color:#000;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;min-width:16px;text-align:center;';
-                        speakerBtn.appendChild(badge);
-
+                        speakerBtn.innerHTML = '🔊 Replay';
+                        speakerBtn.title = 'Replay announcement';
+                        speakerBtn.style.cssText = 'position:relative;margin-top:12px;padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:#fff;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
                         speakerBtn.onclick = async () => {
                             speakerBtn.disabled = true;
                             speakerBtn.innerHTML = '⏳';
-                            speakerBtn.appendChild(badge);
-                            // Poll queue position
-                            const pollId = setInterval(async () => {
-                                try {
-                                    const qs = await fetch('/tts/queue').then(r => r.json());
-                                    if (qs.waiting > 0) { badge.style.display = 'block'; badge.textContent = String(qs.waiting); }
-                                    else { badge.style.display = 'none'; }
-                                } catch { /* ignore */ }
-                            }, 1000);
-                            const spokenText = translatedMessage || composeEmergencyText(msg);
-                            await playEmergencySequence(spokenText, userLang);
-                            clearInterval(pollId);
-                            badge.style.display = 'none';
+                            await playEmergencySequence(eAudioB64);
                             speakerBtn.disabled = false;
-                            speakerBtn.innerHTML = '🔊';
-                            speakerBtn.appendChild(badge);
+                            speakerBtn.innerHTML = '🔊 Replay';
                         };
                         banner.appendChild(document.createElement('br'));
                         banner.appendChild(speakerBtn);
@@ -599,17 +558,10 @@ export default function NetworkTab() {
                     overlay.appendChild(banner);
                     document.body.appendChild(overlay);
 
-                    // Immediate emergency tone — frictionless initial alert (safety first)
-                    try { const t = new Audio('/data/sounds/triage announcement.wav'); t.volume = 0.8; t.play().catch(() => {}); } catch { /* no audio */ }
-
-                    // English: auto-play full cadence with pregenerated audio
-                    if (userLang === 'en') {
-                        const spokenText = composeEmergencyText(msg);
-                        const eAudio = msg.audio_b64 ? String(msg.audio_b64) : undefined;
-                        playEmergencySequence(spokenText, 'en', eAudio).then(() => {
-                            if (overlay.parentNode) dismissOverlay();
-                        });
-                    }
+                    // Auto-play multi-language blob on ALL devices
+                    playEmergencySequence(eAudioB64, composeEmergencyText(msg), 'en').then(() => {
+                        if (overlay.parentNode) dismissOverlay();
+                    });
                 } else if (msg.type === 'announcement') {
                     // General Announcement — yellow overlay on ALL devices
                     fireSystemNotification(
@@ -640,33 +592,19 @@ export default function NetworkTab() {
                     aCloseBtn.onclick = (ev) => { ev.stopPropagation(); dismissAOverlay(); };
                     aBanner.appendChild(aCloseBtn);
 
-                    // 🔊 Speaker button for non-English on-demand TTS
-                    if (aUserLang !== 'en') {
+                    // 🔊 Replay button — replays the cached multi-language blob
+                    const aAudioB64 = msg.audio_b64 ? String(msg.audio_b64) : undefined;
+                    if (aAudioB64) {
                         const aSpeakerBtn = document.createElement('button');
-                        aSpeakerBtn.innerHTML = '🔊';
-                        aSpeakerBtn.title = 'Listen in your language';
-                        aSpeakerBtn.style.cssText = 'position:relative;margin-top:12px;padding:8px 16px;border-radius:8px;border:1px solid rgba(0,0,0,0.2);background:rgba(0,0,0,0.1);color:#000;font-size:16px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
-                        const aBadge = document.createElement('span');
-                        aBadge.style.cssText = 'display:none;position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;min-width:16px;text-align:center;';
-                        aSpeakerBtn.appendChild(aBadge);
-
+                        aSpeakerBtn.innerHTML = '🔊 Replay';
+                        aSpeakerBtn.title = 'Replay announcement';
+                        aSpeakerBtn.style.cssText = 'position:relative;margin-top:12px;padding:8px 16px;border-radius:8px;border:1px solid rgba(0,0,0,0.2);background:rgba(0,0,0,0.1);color:#000;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
                         aSpeakerBtn.onclick = async () => {
                             aSpeakerBtn.disabled = true;
                             aSpeakerBtn.innerHTML = '⏳';
-                            aSpeakerBtn.appendChild(aBadge);
-                            const pollId = setInterval(async () => {
-                                try {
-                                    const qs = await fetch('/tts/queue').then(r => r.json());
-                                    if (qs.waiting > 0) { aBadge.style.display = 'block'; aBadge.textContent = String(qs.waiting); }
-                                    else { aBadge.style.display = 'none'; }
-                                } catch { /* ignore */ }
-                            }, 1000);
-                            await playAnnouncementSequence(`Attention. ${translatedAnn}`, aUserLang);
-                            clearInterval(pollId);
-                            aBadge.style.display = 'none';
+                            await playAnnouncementSequence(aAudioB64);
                             aSpeakerBtn.disabled = false;
-                            aSpeakerBtn.innerHTML = '🔊';
-                            aSpeakerBtn.appendChild(aBadge);
+                            aSpeakerBtn.innerHTML = '🔊 Replay';
                         };
                         aBanner.appendChild(document.createElement('br'));
                         aBanner.appendChild(aSpeakerBtn);
@@ -675,13 +613,10 @@ export default function NetworkTab() {
                     aOverlay.appendChild(aBanner);
                     document.body.appendChild(aOverlay);
 
-                    // English: auto-play cadence with pregenerated audio
-                    if (aUserLang === 'en') {
-                        const aAudio = msg.audio_b64 ? String(msg.audio_b64) : undefined;
-                        playAnnouncementSequence(String(msg.message || ''), 'en', aAudio).then(() => {
-                            if (aOverlay.parentNode) dismissAOverlay();
-                        });
-                    }
+                    // Auto-play multi-language blob on ALL devices
+                    playAnnouncementSequence(aAudioB64, String(msg.message || ''), 'en').then(() => {
+                        if (aOverlay.parentNode) dismissAOverlay();
+                    });
                 } else if (msg.type === 'broadcast_audio') {
                     // Server-synthesized TTS audio — play immediately on all devices
                     try {

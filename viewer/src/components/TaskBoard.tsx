@@ -5,7 +5,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useT } from '../services/i18n';
-import { normalizeToEnglish, precomputeAllLocales, pt, flushPatientTranslations } from '../services/i18nDynamic';
+import { normalizeToEnglish } from '../services/i18nDynamic';
+import { useLanguageArray, AVAILABLE_LANGS } from '../hooks/useLanguageArray';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ function playSound(sound: 'alert' | 'announcement') {
 
 export default function TaskBoard() {
     const { t: tr, lang: userLang } = useT();
+    const { langs: activeLangs, toggleLang } = useLanguageArray();
     const userName = localStorage.getItem('eve-mesh-name') || 'Unknown';
 
     const [tasks, setTasks] = useState<MeshTask[]>([]);
@@ -235,43 +237,51 @@ export default function TaskBoard() {
 
             if (ac.signal.aborted) return;
 
-            // Cancel window: generate TTS audio + translate all 41 languages in parallel
-            const tempId = `emg-${Date.now()}`;
-
-            // Generate English TTS via REST (one-shot WAV) + precompute translations
-            const [ttsBlob] = await Promise.all([
-                fetch('/tts/synthesize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: englishText, voice: 'af_heart', rate: 1.0, lang: 'en' }),
-                }).then(r => r.ok ? r.blob() : null).catch(() => null),
-                precomputeAllLocales([englishText], tempId),
-            ]);
+            // Translate to active languages only (not all 41)
+            const translations: Record<string, string> = {};
+            const ttsSegments: { text: string; lang: string }[] = [
+                { text: `Alert. ${englishText}`, lang: 'en' },
+            ];
+            const targetLangs = activeLangs.filter(l => l !== 'en');
+            if (targetLangs.length > 0) {
+                const results = await Promise.all(
+                    targetLangs.map(lang =>
+                        fetch('/api/translate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: englishText, from_lang: 'en', to_lang: lang }),
+                        }).then(r => r.ok ? r.json() : null).catch(() => null)
+                    )
+                );
+                for (let i = 0; i < targetLangs.length; i++) {
+                    const lang = targetLangs[i];
+                    const translated = results[i]?.translated || results[i]?.text;
+                    if (translated) {
+                        translations[lang] = translated;
+                        ttsSegments.push({ text: translated, lang });
+                    }
+                }
+            }
 
             if (ac.signal.aborted) return;
 
-            // Convert WAV to base64 for broadcast
+            // Generate multi-language stitched audio (one blob, all languages)
             let audio_b64 = '';
-            if (ttsBlob) {
-                const buf = await ttsBlob.arrayBuffer();
-                const bytes = new Uint8Array(buf);
-                let binary = '';
-                for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-                audio_b64 = btoa(binary);
-            }
-
-            // Build translations map from precomputed cache
-            const NLLB_LOCALES = [
-                'am','ar','bn','de','es','fa','fr','ha','he','hi',
-                'id','ig','it','ja','jw','km','ko','ku','la','mg',
-                'mr','my','nl','pl','ps','pt','ru','so','sw','ta',
-                'te','th','tl','tr','uk','ur','vi','xh','yo','zh','zu',
-            ];
-            const translations: Record<string, string> = {};
-            for (const lang of NLLB_LOCALES) {
-                const translated = pt(tempId, lang, englishText);
-                if (translated !== englishText) translations[lang] = translated;
-            }
+            try {
+                const ttsRes = await fetch('/tts/synthesize-multi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ segments: ttsSegments, rate: 1.0 }),
+                });
+                if (ttsRes.ok) {
+                    const blob = await ttsRes.blob();
+                    const buf = await blob.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                    audio_b64 = btoa(binary);
+                }
+            } catch { /* TTS unavailable — broadcast text only */ }
 
             // Broadcast text + audio + translations
             await fetch(`${API_BASE}/api/mesh/emergency`, {
@@ -287,7 +297,6 @@ export default function TaskBoard() {
                 }),
             });
 
-            flushPatientTranslations(tempId);
             setShowEmergency(false);
             setEmergencyForm({ ward: '', bed: '', categories: [], notes: '' });
         } catch {
@@ -322,42 +331,51 @@ export default function TaskBoard() {
 
             if (ac.signal.aborted) return;
 
-            // Cancel window: generate TTS audio + translate all 41 languages in parallel
-            const tempId = `ann-${Date.now()}`;
-
-            const [ttsBlob] = await Promise.all([
-                fetch('/tts/synthesize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: `Attention. ${englishText}`, voice: 'af_heart', rate: 1.0, lang: 'en' }),
-                }).then(r => r.ok ? r.blob() : null).catch(() => null),
-                precomputeAllLocales([englishText], tempId),
-            ]);
+            // Translate to active languages only (scoped, not all 41)
+            const translations: Record<string, string> = {};
+            const ttsSegments: { text: string; lang: string }[] = [
+                { text: `Attention. ${englishText}`, lang: 'en' },
+            ];
+            const targetLangs = activeLangs.filter(l => l !== 'en');
+            if (targetLangs.length > 0) {
+                const results = await Promise.all(
+                    targetLangs.map(lang =>
+                        fetch('/api/translate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: englishText, from_lang: 'en', to_lang: lang }),
+                        }).then(r => r.ok ? r.json() : null).catch(() => null)
+                    )
+                );
+                for (let i = 0; i < targetLangs.length; i++) {
+                    const lang = targetLangs[i];
+                    const translated = results[i]?.translated || results[i]?.text;
+                    if (translated) {
+                        translations[lang] = translated;
+                        ttsSegments.push({ text: translated, lang });
+                    }
+                }
+            }
 
             if (ac.signal.aborted) return;
 
-            // Convert WAV to base64 for broadcast
+            // Generate multi-language stitched audio (one blob, all languages)
             let audio_b64 = '';
-            if (ttsBlob) {
-                const buf = await ttsBlob.arrayBuffer();
-                const bytes = new Uint8Array(buf);
-                let binary = '';
-                for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-                audio_b64 = btoa(binary);
-            }
-
-            // Build translations map
-            const NLLB_LOCALES = [
-                'am','ar','bn','de','es','fa','fr','ha','he','hi',
-                'id','ig','it','ja','jw','km','ko','ku','la','mg',
-                'mr','my','nl','pl','ps','pt','ru','so','sw','ta',
-                'te','th','tl','tr','uk','ur','vi','xh','yo','zh','zu',
-            ];
-            const translations: Record<string, string> = {};
-            for (const lang of NLLB_LOCALES) {
-                const translated = pt(tempId, lang, englishText);
-                if (translated !== englishText) translations[lang] = translated;
-            }
+            try {
+                const ttsRes = await fetch('/tts/synthesize-multi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ segments: ttsSegments, rate: 1.0 }),
+                });
+                if (ttsRes.ok) {
+                    const blob = await ttsRes.blob();
+                    const buf = await blob.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                    audio_b64 = btoa(binary);
+                }
+            } catch { /* TTS unavailable — broadcast text only */ }
 
             // Broadcast text + audio + translations
             await fetch(`${API_BASE}/api/mesh/announcement`, {
@@ -370,7 +388,6 @@ export default function TaskBoard() {
                 }),
             });
 
-            flushPatientTranslations(tempId);
             setShowAnnouncement(false);
             setAnnouncementMsg('');
         } catch {
@@ -607,7 +624,14 @@ export default function TaskBoard() {
                             ))}
                         </div>
 
-                        <input className="if-input" placeholder={tr('tasks.notes_placeholder')} value={emergencyForm.notes} onChange={e => setEmergencyForm(f => ({ ...f, notes: e.target.value }))} style={{ marginBottom: 16 }} />
+                        <input className="if-input" placeholder={tr('tasks.notes_placeholder')} value={emergencyForm.notes} onChange={e => setEmergencyForm(f => ({ ...f, notes: e.target.value }))} style={{ marginBottom: 12 }} />
+
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>{tr('tasks.broadcast_languages', 'Broadcast Languages')}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
+                            {AVAILABLE_LANGS.map(l => (
+                                <button key={l.code} onClick={() => toggleLang(l.code)} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 4, border: `1px solid ${activeLangs.includes(l.code) ? '#e74c3c' : '#333'}`, background: activeLangs.includes(l.code) ? '#e74c3c22' : '#111', color: activeLangs.includes(l.code) ? '#e74c3c' : '#666', cursor: 'pointer', fontWeight: activeLangs.includes(l.code) ? 600 : 400 }}>{l.label}</button>
+                            ))}
+                        </div>
 
                         <div style={{ display: 'flex', gap: 10 }}>
                             <button onClick={() => { abortCtlRef.current?.abort(); setShowEmergency(false); }} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid #444', borderRadius: 8, color: '#888', fontSize: 13, cursor: 'pointer' }}>{tr('tasks.cancel')}</button>
@@ -630,8 +654,15 @@ export default function TaskBoard() {
                             value={announcementMsg}
                             onChange={e => setAnnouncementMsg(e.target.value)}
                             rows={3}
-                            style={{ marginBottom: 16, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
+                            style={{ marginBottom: 12, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
                         />
+
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>{tr('tasks.broadcast_languages', 'Broadcast Languages')}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
+                            {AVAILABLE_LANGS.map(l => (
+                                <button key={l.code} onClick={() => toggleLang(l.code)} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 4, border: `1px solid ${activeLangs.includes(l.code) ? '#f0a500' : '#333'}`, background: activeLangs.includes(l.code) ? '#f0a50022' : '#111', color: activeLangs.includes(l.code) ? '#f0a500' : '#666', cursor: 'pointer', fontWeight: activeLangs.includes(l.code) ? 600 : 400 }}>{l.label}</button>
+                            ))}
+                        </div>
 
                         <div style={{ display: 'flex', gap: 10 }}>
                             <button onClick={() => { abortCtlRef.current?.abort(); setShowAnnouncement(false); setAnnouncementMsg(''); }} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid #444', borderRadius: 8, color: '#888', fontSize: 13, cursor: 'pointer' }}>{tr('tasks.cancel')}</button>

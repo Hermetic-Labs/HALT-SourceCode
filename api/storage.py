@@ -125,20 +125,22 @@ def thread_path(id_a: str, id_b: str) -> Path:
 # ── Activity log ───────────────────────────────────────────────────────────────
 
 
-def log_activity(who: str, action: str, target: str = ""):
-    """Append an entry to the activity log. Fire-and-forget."""
+def log_activity(who: str, action: str, target: str = "", **extra):
+    """Append an entry to the activity log. Fire-and-forget.
+    Extra kwargs (e.g. action_type, qty) are stored alongside for structured i18n."""
     from datetime import datetime
 
     p = activity_path()
     entries = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
-    entries.append(
-        {
-            "who": who,
-            "action": action,
-            "target": target,
-            "timestamp": datetime.now().isoformat(),
-        }
-    )
+    entry = {
+        "who": who,
+        "action": action,
+        "target": target,
+        "timestamp": datetime.now().isoformat(),
+    }
+    # Merge any structured fields (action_type, qty, etc.)
+    entry.update(extra)
+    entries.append(entry)
     # Keep last 1000 entries
     if len(entries) > 1000:
         entries = entries[-1000:]

@@ -223,14 +223,16 @@ function ModifyQuantityModal({ item, displayName, type, onClose, onConfirm }: {
     onConfirm: (amount: number) => Promise<void>;
 }) {
     const { t } = useT();
-    const [amount, setAmount] = useState(1);
+    const [amountStr, setAmountStr] = useState('1');
     const [saving, setSaving] = useState(false);
 
+    const parsedAmount = parseInt(amountStr) || 0;
+
     const handleSubmit = async () => {
-        if (amount < 1) return;
+        if (parsedAmount < 1) return;
         setSaving(true);
         try {
-            await onConfirm(amount);
+            await onConfirm(parsedAmount);
             onClose();
         } finally {
             setSaving(false);
@@ -254,8 +256,9 @@ function ModifyQuantityModal({ item, displayName, type, onClose, onConfirm }: {
                         type="number"
                         min="1"
                         max={type === 'take' ? item.quantity : 9999}
-                        value={amount}
-                        onChange={e => setAmount(parseInt(e.target.value) || 1)}
+                        value={amountStr}
+                        onChange={e => setAmountStr(e.target.value)}
+                        onBlur={() => { if (!amountStr.trim() || parsedAmount < 1) setAmountStr('1'); }}
                         autoFocus
                     />
                 </div>
@@ -265,9 +268,9 @@ function ModifyQuantityModal({ item, displayName, type, onClose, onConfirm }: {
                         className="intake-next-btn"
                         style={{ flex: 1, background: color, borderColor: color }}
                         onClick={handleSubmit}
-                        disabled={saving || (type === 'take' && amount > item.quantity)}
+                        disabled={saving || parsedAmount < 1 || (type === 'take' && parsedAmount > item.quantity)}
                     >
-                        {saving ? t('inv.saving') : `${t('inv.confirm')} ${type === 'add' ? '+' : '-'}${amount}`}
+                        {saving ? t('inv.saving') : `${t('inv.confirm')} ${type === 'add' ? '+' : '-'}${parsedAmount || 0}`}
                     </button>
                     <button className="intake-back-btn" onClick={onClose} disabled={saving}>{t('inv.cancel')}</button>
                 </div>
@@ -487,7 +490,7 @@ export default function InventoryTab() {
                         {activePatients.length > 0 && <span style={{ fontSize: 11, color: '#fff' }}>{t('inv.based_on')} {activePatients.length} {t('inv.active_patients')}</span>}
                     </div>
                     <div style={{ height: 220 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
                             <BarChart data={chartData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
                                 <XAxis dataKey="name" stroke="#fff" fontSize={12} tickLine={false} axisLine={false} />
@@ -521,6 +524,11 @@ export default function InventoryTab() {
                             style={{ background: isExpanded ? 'var(--surface2)' : 'var(--surface)', padding: 16, borderRadius: 8, border: `1px solid ${isCritical ? '#e74c3c66' : 'var(--border)'}`, cursor: 'pointer', transition: 'background 0.2s', boxShadow: isExpanded ? '0 4px 12px rgba(0,0,0,0.5)' : 'none' }}
                             onClick={() => setExpandedId(isExpanded ? null : item.id)}
                         >
+                            {/* Bar Graph — top-aligned across all cards */}
+                            <div style={{ height: 6, background: 'var(--bg)', borderRadius: 3, overflow: 'hidden', marginBottom: 16 }}>
+                                <div style={{ height: '100%', width: `${ratio * 100}%`, background: barColor, transition: 'width 0.3s ease, background 0.3s ease' }} />
+                            </div>
+
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                                 <div>
                                     <div style={{ fontWeight: 600, fontSize: 16 }}>{tName(item)}</div>
@@ -529,11 +537,6 @@ export default function InventoryTab() {
                                 <div style={{ fontSize: 24, fontWeight: 700, color: barColor }}>
                                     {item.quantity}
                                 </div>
-                            </div>
-
-                            {/* Bar Graph */}
-                            <div style={{ height: 6, background: 'var(--bg)', borderRadius: 3, overflow: 'hidden', marginBottom: 16 }}>
-                                <div style={{ height: '100%', width: `${ratio * 100}%`, background: barColor, transition: 'width 0.3s ease, background 0.3s ease' }} />
                             </div>
 
                             {/* Controls */}
@@ -615,7 +618,7 @@ export default function InventoryTab() {
                     </select>
                     {activity.length > 0 && (
                         <button
-                            onClick={async (e) => { e.stopPropagation(); try { await fetch('/api/inventory/activity', { method: 'DELETE' }); setActivity([]); } catch { /* offline */ } }}
+                            onClick={async (e) => { e.stopPropagation(); try { await fetch('/api/inventory/activity', { method: 'DELETE' }); await load(); } catch { /* offline */ } }}
                             style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-faint)', cursor: 'pointer', whiteSpace: 'nowrap' }}
                         >
                             {t('inv.clear', 'Clear')}
@@ -632,7 +635,11 @@ export default function InventoryTab() {
                     ) : (
                         filtered.map((entry, i) => {
                             const ago = formatTimeAgo(entry.timestamp);
-                            const isConsume = entry.action.includes('consumed');
+                            const isConsume = entry.action_type === 'consumed' || entry.action.includes('consumed');
+                            // Build i18n-safe action string
+                            const actionLabel = entry.action_type
+                                ? `${t(`inv.action_${entry.action_type}`, entry.action_type)} ${entry.qty ?? ''}x`
+                                : entry.action;
                             return (
                                 <div key={i} style={{
                                     padding: '10px 20px',
@@ -645,7 +652,7 @@ export default function InventoryTab() {
                                     <span style={{ fontSize: 16, color: isConsume ? '#e74c3c' : '#3fb950', lineHeight: 1 }}>{isConsume ? '▼' : '▲'}</span>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <span style={{ fontWeight: 600, color: 'var(--text)' }}>{entry.who}</span>
-                                        <span style={{ color: isConsume ? '#e74c3c' : '#3fb950', margin: '0 6px' }}>{entry.action}</span>
+                                        <span style={{ color: isConsume ? '#e74c3c' : '#3fb950', margin: '0 6px' }}>{actionLabel}</span>
                                         <span style={{ color: 'var(--text)' }}>{entry.target}</span>
                                     </div>
                                     <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{ago}</span>

@@ -61,6 +61,11 @@ export async function updateStatus(patientId: string, status: string): Promise<v
     await api(`/patients/${patientId}/status?status=${status}`, { method: 'PATCH' });
 }
 
+/** Hard purge — removes the patient JSON + attachments from the server. No trace remains. */
+export async function purgePatient(patientId: string): Promise<void> {
+    await fetch(`${BASE}/patients/${patientId}`, { method: 'DELETE' });
+}
+
 export async function uploadAttachment(patientId: string, file: File): Promise<{ filename: string }> {
     const form = new FormData();
     form.append('file', file);
@@ -169,7 +174,7 @@ export async function deleteInventoryItem(id: string): Promise<void> {
 }
 // ── Activity Log ────────────────────────────────────────────────────────────
 
-export interface ActivityEntry { who: string; action: string; target: string; timestamp: string; }
+export interface ActivityEntry { who: string; action: string; target: string; timestamp: string; action_type?: string; qty?: number; }
 
 export async function getInventoryActivity(limit = 50): Promise<ActivityEntry[]> {
     return api<ActivityEntry[]>(`/inventory/activity?limit=${limit}`);

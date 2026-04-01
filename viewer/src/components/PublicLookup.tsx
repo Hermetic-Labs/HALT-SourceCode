@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useT } from '../services/i18n';
 
 const LANGS = [
@@ -27,34 +27,41 @@ interface PublicPatient {
 export default function PublicLookup() {
     const { t, lang, setLang } = useT();
     const [query, setQuery] = useState('');
-    const [results, setResults] = useState<PublicPatient[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [searched, setSearched] = useState(false);
+    const [allPatients, setAllPatients] = useState<PublicPatient[]>([]);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const handleSearch = useCallback(async () => {
-        if (!query.trim()) return;
+    // Fetch all opted-in patients on mount
+    useEffect(() => {
+        let cancelled = false;
+        const fetchAll = async () => {
+            setLoading(true);
+            try {
+                // Fetch full list — backend returns all opted-in patients when name is empty or '*'
+                const res = await fetch('/api/public/patients?all=1');
+                if (!res.ok) throw new Error('Failed to load patients');
+                const data = await res.json();
+                if (!cancelled) setAllPatients(Array.isArray(data) ? data : data.results || []);
+            } catch (e) {
+                if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+        fetchAll();
+        // Refresh every 15 seconds for live updates
+        const interval = setInterval(fetchAll, 15000);
+        return () => { cancelled = true; clearInterval(interval); };
+    }, []);
 
-        setLoading(true);
-        setError(null);
-        setSearched(true);
+    // Client-side live filtering
+    const results = useMemo(() => {
+        if (!query.trim()) return allPatients;
+        const q = query.toLowerCase().trim();
+        return allPatients.filter(p => p.name.toLowerCase().includes(q));
+    }, [allPatients, query]);
 
-        try {
-            const res = await fetch(`/api/public/patients?name=${encodeURIComponent(query.trim())}`);
-            if (!res.ok) throw new Error('Search failed');
-            const data = await res.json();
-            setResults(Array.isArray(data) ? data : data.results || []);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Search failed');
-            setResults([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [query]);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') handleSearch();
-    };
 
     return (
         <div style={{
@@ -106,7 +113,6 @@ export default function PublicLookup() {
                     </p>
                 </div>
 
-                {/* Search Box */}
                 <div style={{
                     background: '#161b22',
                     borderRadius: 12,
@@ -119,7 +125,6 @@ export default function PublicLookup() {
                             type="text"
                             value={query}
                             onChange={e => setQuery(e.target.value)}
-                            onKeyDown={handleKeyDown}
                             placeholder={t('lookup.placeholder', 'Enter patient name...')}
                             autoFocus
                             style={{
@@ -133,24 +138,27 @@ export default function PublicLookup() {
                                 outline: 'none',
                             }}
                         />
-                        <button
-                            onClick={handleSearch}
-                            disabled={loading || !query.trim()}
-                            style={{
-                                padding: '12px 24px',
-                                fontSize: 14,
-                                fontWeight: 600,
-                                background: loading ? '#21262d' : '#238636',
-                                color: loading ? '#8b949e' : '#fff',
-                                border: 'none',
-                                borderRadius: 8,
-                                cursor: loading ? 'not-allowed' : 'pointer',
-                                transition: 'opacity 0.2s',
-                            }}
-                        >
-                            {loading ? '...' : t('lookup.search', 'Search')}
-                        </button>
+                        {query.trim() && (
+                            <button
+                                onClick={() => setQuery('')}
+                                style={{
+                                    padding: '12px 16px',
+                                    fontSize: 14,
+                                    background: '#21262d',
+                                    color: '#8b949e',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    cursor: 'pointer',
+                                }}
+                            >✕</button>
+                        )}
                     </div>
+                    {!loading && (
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#484f58' }}>
+                            {allPatients.length} {t('lookup.available', 'patients available')}
+                            {query.trim() && ` • ${results.length} ${t('lookup.matching', 'matching')}`}
+                        </div>
+                    )}
                 </div>
 
                 {/* Error */}
@@ -169,18 +177,18 @@ export default function PublicLookup() {
                     </div>
                 )}
 
-                {/* Results */}
-                {searched && !loading && (
+                {/* Results — always visible once loaded */}
+                {!loading && (
                     <div>
-                        <div style={{
-                            color: '#8b949e',
-                            fontSize: 13,
-                            marginBottom: 14,
-                        }}>
-                            {results.length === 0
-                                ? t('lookup.no_results', 'No patients found matching that name.')
-                                : `${results.length} ${t('lookup.results_found', 'result(s) found')}`}
-                        </div>
+                        {results.length === 0 && query.trim() && (
+                            <div style={{
+                                color: '#8b949e',
+                                fontSize: 13,
+                                marginBottom: 14,
+                            }}>
+                                {t('lookup.no_results', 'No patients found matching that name.')}
+                            </div>
+                        )}
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {results.map(patient => (
@@ -261,20 +269,23 @@ export default function PublicLookup() {
                     </div>
                 )}
 
-                {/* Initial state */}
-                {!searched && !loading && (
+                {/* Loading state */}
+                {loading && (
                     <div style={{
                         textAlign: 'center',
                         padding: '36px 20px',
                         color: '#484f58',
                     }}>
-                        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" style={{ opacity: 0.4, marginBottom: 14 }}>
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="M21 21l-4.35-4.35" />
-                        </svg>
+                        <div style={{
+                            width: 32, height: 32, border: '3px solid #21262d',
+                            borderTopColor: '#3fb950', borderRadius: '50%',
+                            animation: 'spin 0.8s linear infinite',
+                            margin: '0 auto 14px',
+                        }} />
                         <p style={{ fontSize: 14 }}>
-                            {t('lookup.instructions', 'Enter a patient name above to search')}
+                            {t('lookup.loading', 'Loading patients...')}
                         </p>
+                        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
                     </div>
                 )}
             </div>

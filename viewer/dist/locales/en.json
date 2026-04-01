@@ -295,6 +295,15 @@
   "ward.rooms_hint": "E.g. Trauma1, Trauma2, OBS-1",
   "ward.events_tab": "Events",
   "ward.overdue": "OVERDUE",
+  "ward.save_note": "Save",
+  "ward.intake_notes": "Intake Notes",
+  "ward.no_notes": "No notes yet",
+  "ward.note_placeholder": "Type a note...",
+  "intake.bed_label": "Bed",
+  "ward.discharge_qr_title": "Patient Discharge",
+  "ward.discharge_qr_desc": "Have the patient scan this QR code on their device to receive their medical records.",
+  "ward.confirm_purge": "Confirm discharge and purge patient from system?",
+  "ward.confirm_discharge_purge": "Confirm Discharge & Purge",
   "plan.recovery_dcs": "Damage control surgery likely required. MEDEVAC to OR-capable facility immediately.",
   "plan.recovery_triad": "Lethal triad risk (hypothermia + coagulopathy + acidosis) -- aggressive prevention throughout.",
   "plan.recovery_los_long": "Expected hospital LOS: 7-21 days depending on operative course.",
@@ -1019,5 +1028,23 @@
   "lookup.ward": "Ward",
   "lookup.bed": "Bed",
   "lookup.instructions": "Enter a patient name above to search",
-  "lookup.privacy_note": "Only patients who have consented to family lookup are shown. No medical details are displayed."
+  "lookup.privacy_note": "Only patients who have consented to family lookup are shown. No medical details are displayed.",
+  "lookup.available": "patients available",
+  "lookup.matching": "matching",
+  "lookup.loading": "Loading patients...",
+
+  "triage.processing": "Processing...",
+  "triage.empty_response": "The AI model did not return a response. This can happen when the model is still loading or the request was too complex. Please try again.",
+  "triage.error_prefix": "Error",
+  "triage.translate_failed": "Translation service unavailable",
+  "triage.translate_offline": "Translation unavailable offline",
+
+  "inv.action_consumed": "Took",
+  "inv.action_restocked": "Added",
+
+  "discharge.title": "Discharge Summary",
+  "discharge.scan_instructions": "Scan the QR code below for your medical records",
+  "discharge.provider_name": "Provider",
+  "discharge.discharged_at": "Discharged",
+  "discharge.follow_up": "Follow-up Instructions"
 }

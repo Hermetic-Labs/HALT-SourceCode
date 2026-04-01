@@ -406,7 +406,96 @@ async def synthesize(req: TTSRequest):
         raise HTTPException(503, "TTS queue error")
 
 
+# ── Multi-language stitched synthesis ──────────────────────────────────────────
+
+class TTSSegment(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    lang: str = Field(default="en")
+
+class TTSMultiRequest(BaseModel):
+    segments: list[TTSSegment] = Field(..., min_length=1, max_length=10)
+    rate: float = Field(default=1.0, ge=0.5, le=2.0)
+    gap_seconds: float = Field(default=0.8, ge=0.0, le=3.0)
+
+
+def _synth_raw(text: str, voice: str, speed: float, lang: str = "en"):
+    """Like _synth but returns raw numpy samples + sample_rate instead of WAV bytes."""
+    k = _get_kokoro()
+    if not k:
+        raise RuntimeError("Kokoro not loaded")
+    v = _pick_voice(voice, lang)
+    v = v if v in _voices else (_voices[0] if _voices else DEFAULT_VOICE)
+    text = _preprocess_text(text, lang)
+    samples, sr = k.create(text=text, voice=v, speed=speed, lang=_espeak_code(lang))
+    return samples, sr
+
+
+def _synth_multi(segments: list[dict], rate: float, gap_seconds: float) -> bytes:
+    """Generate per-segment audio with correct voice, stitch with silence gaps."""
+    import numpy as np
+
+    all_samples = []
+    sample_rate = 24000  # Kokoro default
+
+    for i, seg in enumerate(segments):
+        text = seg["text"]
+        lang = seg["lang"]
+        try:
+            samples, sr = _synth_raw(text, DEFAULT_VOICE, rate, lang)
+            sample_rate = sr  # use actual rate from Kokoro
+            all_samples.append(samples)
+        except Exception as e:
+            logger.warning(f"TTS segment failed (lang={lang}): {e}")
+            continue
+
+        # Add silence gap between segments (not after the last one)
+        if i < len(segments) - 1 and gap_seconds > 0:
+            silence = np.zeros(int(sample_rate * gap_seconds), dtype=samples.dtype)
+            all_samples.append(silence)
+
+    if not all_samples:
+        raise RuntimeError("All TTS segments failed")
+
+    combined = np.concatenate(all_samples)
+    return _to_wav(combined, sample_rate)
+
+
+@router.post("/synthesize-multi")
+async def synthesize_multi(req: TTSMultiRequest):
+    """Generate a single WAV from multiple language segments, each with its native voice.
+    Used for multi-language announcements: one Kokoro call per language, stitched together."""
+    global _tts_queue_waiting, _tts_active_user
+    k = await _wait_kokoro(30)
+    if not k:
+        raise HTTPException(503, "TTS not ready — Kokoro still loading")
+    _tts_queue_waiting += 1
+    try:
+        async with _tts_lock:
+            _tts_queue_waiting = max(0, _tts_queue_waiting - 1)
+            _tts_active_user = "synthesize-multi"
+            loop = asyncio.get_event_loop()
+            try:
+                segments = [{"text": s.text, "lang": s.lang} for s in req.segments]
+                wav = await loop.run_in_executor(
+                    None, _synth_multi, segments, req.rate, req.gap_seconds
+                )
+                return Response(
+                    content=wav, media_type="audio/wav",
+                    headers={"Content-Disposition": "inline; filename=announcement.wav"},
+                )
+            except Exception as e:
+                raise HTTPException(503, str(e))
+            finally:
+                _tts_active_user = ""
+    except HTTPException:
+        raise
+    except Exception:
+        _tts_queue_waiting = max(0, _tts_queue_waiting - 1)
+        raise HTTPException(503, "TTS queue error")
+
+
 # ── WebSocket streaming TTS ────────────────────────────────────────────────────
+
 @router.get("/queue")
 def tts_queue_status():
     """Current TTS queue state — used for speaker badge UI."""

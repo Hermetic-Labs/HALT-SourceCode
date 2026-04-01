@@ -96,6 +96,7 @@ class PatientRecord(BaseModel):
     plan: PatientPlan = Field(default_factory=PatientPlan)
     events: list[PatientEvent] = []
     notes: str = ""
+    noteEntries: list[dict[str, Any]] = []  # Structured notes with author/date
     attachmentNames: list[str] = []
     nextOfKin: str = ""
     spokenLanguage: str = "English"
@@ -148,10 +149,44 @@ def public_lookup_qr(request: Request):
     return {"url": lookup_url, "qr_image": qr_image}
 
 
+@router.get("/api/patients/{patient_id}/discharge-qr")
+def discharge_qr(patient_id: str, request: Request, lang: str = "en"):
+    """Generate a QR code that points to the patient export page.
+    The discharged patient scans this on their device to receive their records."""
+    import io
+    import base64
+    from routes.mesh import _get_local_ip
+
+    path = patient_path(patient_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    port = request.url.port or request.scope.get("server", [None, 7778])[1]
+    local_ip = _get_local_ip()
+    export_url = f"http://{local_ip}:{port}/api/patients/{patient_id}/export?lang={lang}"
+
+    try:
+        import qrcode as qr_lib
+        qr = qr_lib.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(export_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        qr_image = f"data:image/png;base64,{b64}"
+    except ImportError:
+        qr_image = None
+
+    return {"url": export_url, "qr_image": qr_image}
+
+
 @router.get("/api/public/patients")
-def public_patient_lookup(name: str = ""):
-    """Family-facing patient search. Returns only opted-in patients with non-clinical data."""
-    if not name.strip():
+def public_patient_lookup(name: str = "", all: int = 0):
+    """Family-facing patient search. Returns only opted-in patients with non-clinical data.
+    Pass ?all=1 to fetch all opted-in patients (for client-side filtering)."""
+    if not name.strip() and not all:
         return []
     results = []
     for f in DATA_DIR.glob("PAT-*.json"):
@@ -159,7 +194,7 @@ def public_patient_lookup(name: str = ""):
             record = read_json(f)
             if not record.get("public_opt_in", False) and not record.get("publicOptIn", False):
                 continue
-            if name.lower() not in record.get("name", "").lower():
+            if name.strip() and name.lower() not in record.get("name", "").lower():
                 continue
             attachment_names = record.get("attachmentNames", [])
             photo_name = next((n for n in attachment_names if n.startswith("photo.")), "")
@@ -282,11 +317,17 @@ def update_status(patient_id: str, status: str):
 
 @router.delete("/api/patients/{patient_id}", status_code=204)
 def delete_patient(patient_id: str):
-    """Soft delete is preferred — use status='discharged' instead. This physically removes the file."""
+    """Hard purge — physically removes the patient JSON and all attachments.
+    Used after QR discharge handoff to honour the hermetic trust model:
+    once the patient has their records, no trace remains on the system."""
     path = patient_path(patient_id)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Patient not found")
     path.unlink()
+    # Also purge attachments (photos, X-rays, etc.)
+    attach_dir = ATTACH_DIR / patient_id
+    if attach_dir.is_dir():
+        shutil.rmtree(attach_dir, ignore_errors=True)
 
 
 # ── Attachments ────────────────────────────────────────────────────────────────

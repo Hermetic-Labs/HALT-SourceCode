@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 # ── App ────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Medic Info API", version="1.0.3", lifespan=lifespan)
+app = FastAPI(title="Medic Info API", version="1.0.5", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.3-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.0.5-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/python-3.13-yellow?style=flat-square" alt="Python" />
   <img src="https://img.shields.io/badge/AI-100%25_Local-red?style=flat-square" alt="AI Local" />
-  <img src="https://img.shields.io/badge/status-alpha-orange?style=flat-square" alt="Status" />
+  <img src="https://img.shields.io/badge/status-beta-brightgreen?style=flat-square" alt="Status" />
 </p>
 
 <p align="center">
@@ -62,36 +62,41 @@ python start.py              # Auto-downloads AI models on first run (~4 GB)
 ## ✅ What It Does
 
 <details>
-<summary><strong>20 features — click to expand</strong></summary>
+<summary><strong>24 features — click to expand</strong></summary>
 
 <br/>
 
 | # | Feature | Summary |
 |---|---------|---------|
-| 1 | **Patient Intake** | Demographics, triage priority, ward/bed assignment, mass casualty mode |
-| 2 | **Patient Records** | Full detail panel — MARCH plan, meds, vitals history, attachments, notes |
-| 3 | **Patient Monitoring** | Vitals and medication event log with auto-scheduled follow-up tasks |
-| 4 | **Volunteer Task Board** | Claimable tasks with countdown timers and ownership tracking |
-| 5 | **Public Lookup QR** | Family members scan a QR code to locate patients by name — no staff needed |
-| 6 | **Inventory System** | Any location becomes a supply bin — thresholds, usage logs, alternatives |
-| 7 | **Predictive Alerts** | Auto-broadcasts supply warnings and emergencies when stock hits zero |
-| 8 | **Medical Protocols** | MARCH, GCS, hemorrhage classification, triage scoring (T1–T4) |
-| 9 | **Translation Bridge** | Real-time two-way speech translation across 42 languages — no internet |
-| 10 | **Voice Interface** | Whisper speech-to-text intake + Kokoro TTS output in patient's language |
-| 11 | **Mesh Network** | Local WiFi mesh — broadcast chat, DMs, reactions, 500-message history |
-| 12 | **Leadership Failover** | Role hierarchy with one-tap leadership takeover and full state snapshot |
-| 13 | **Shift Reports** | Cross-ward patient rollup, sorted by triage priority, multilingual export |
-| 14 | **Patient Export** | PDF and print-ready HTML medevac cards with full clinical detail |
-| 15 | **Emergency Alerts** | Category-targeted broadcasts (All Hands, Doctors, Inventory, etc.) |
-| 16 | **AI Medical Layer** | MedGemma 4B for differential diagnosis and drug interactions — fully local |
-| 17 | **Auto-Download** | 4 model packs download on first launch; resumable with SHA-256 verification |
-| 18 | **Portable Runtime** | Bundled Python, no system install — `python start.py` and go |
-| 19 | **Staff Roster** | Personnel tracking with real-time connection status via WebSocket |
-| 20 | **Ward Management** | Visual ward map, room/bed layout, drag-to-assign patients |
+| 1 | **Patient Intake** | 6-step intake: demographics, triage priority (T1–T4), MARCH assessment, ward/bed assignment |
+| 2 | **Mass Casualty Mode** | 3-tap rapid intake — name, priority, save. Details later when things calm down |
+| 3 | **Patient Records** | Full detail panel — vitals history, meds, MARCH plan, attachments, notes, tourniquet timers |
+| 4 | **Patient Monitoring** | Vitals and medication event log with auto-scheduled follow-up tasks |
+| 5 | **Family Patient Lookup** | Families search by name on any phone — shows ward and bed only, no clinical data exposed |
+| 6 | **Public Lookup QR** | Print a QR code, tape it to the front desk — families scan and search without staff help |
+| 7 | **Volunteer Task Board** | Claimable tasks with countdown timers, ownership tracking, and overdue alerts |
+| 8 | **Inventory System** | Multi-location supply tracking — thresholds, usage logs, suggested alternatives |
+| 9 | **Predictive Alerts** | Auto-broadcasts warnings when stock hits critical or zero — targeted by category |
+| 10 | **Ward Management** | Visual ward map with room/bed layout, drag-to-assign patients, per-room occupancy |
+| 11 | **Ward Printing** | Print ward signs and room labels — set up any building as a triage station in minutes |
+| 12 | **Shift Reports** | Cross-ward patient rollup sorted by priority, multilingual, print-ready |
+| 13 | **Discharge QR Cards** | Generate a translated QR card for discharged patients with follow-up instructions |
+| 14 | **Patient Export** | Print-ready HTML medevac cards with full clinical detail for transport handoff |
+| 15 | **Translation Bridge** | Real-time two-way speech translation across 42 languages — fully offline |
+| 16 | **Voice Interface** | Whisper speech-to-text + Kokoro TTS in the patient's language — speak and listen |
+| 17 | **42-Language UI** | Every label, button, and status in the interface translates to the selected language |
+| 18 | **AI Triage Assistant** | MedGemma 4B for differential diagnosis, drug interactions, and clinical Q&A — fully local |
+| 19 | **Mesh Network** | Local WiFi mesh — broadcast chat, DMs, reactions, multilingual fan-out, 500-message history |
+| 20 | **Emergency Broadcasts** | Category-targeted alerts (All Hands, Doctors, Inventory) with TTS announcement |
+| 21 | **Leadership Failover** | Role hierarchy with one-tap leadership takeover and full state snapshot |
+| 22 | **Staff Roster** | Real-time personnel tracking with WebSocket connection status |
+| 23 | **Low Power Mode** | Auto-engages below 20% battery — kills animations, reduces polling, extends runtime |
+| 24 | **Encryption at Rest** | AES-256 patient data encryption — records are unreadable if the device is captured |
 
 > Full reference with API paths: [`FEATURES.md`](FEATURES.md)
 
 </details>
+
 
 ---
 
@@ -184,7 +189,7 @@ python dev/build_and_deploy.py --platform win --release
 | Platform | Role | Status |
 |:---------|:-----|:------:|
 | **Windows** | Full server + Electron shell | ✅ Working |
-| **macOS** | Full server + Electron shell | 🟡 Needs portable Python |
+| **macOS** | Full server + native build | ✅ Planned |
 | **Raspberry Pi 5** | Kiosk server for field stations | ✅ Working |
 | **iOS** | Client (Capacitor companion + HealthKit) | ✅ Companion app |
 | **Android / any device** | Client (open browser to server IP) | ✅ Browser PWA |

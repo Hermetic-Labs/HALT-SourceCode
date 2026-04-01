@@ -69,7 +69,7 @@ export default function CommsPanel() {
         roster, newMsg, setNewMsg,
         targetContact, setTargetContact,
         messagesEndRef,
-        sendMessage,
+        sendMessage, clearMessages,
         connectedMembers, filteredMessages, callableMembers,
         formatTime, messages,
     } = useChat({ userName, userRole, lang, isLeader, callActive });
@@ -198,7 +198,7 @@ export default function CommsPanel() {
                                 <button
                                     onClick={async () => {
                                         if (!confirm(t('comms.clear_confirm', 'Clear all messages from the board?'))) return;
-                                        try { await fetch('/api/mesh/chat', { method: 'DELETE' }); } catch { /* offline */ }
+                                        try { await fetch('/api/mesh/chat', { method: 'DELETE' }); clearMessages(); } catch { /* offline */ }
                                     }}
                                     style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', border: '1px solid #e74c3c33', borderRadius: 4, color: '#e74c3c', cursor: 'pointer', flexShrink: 0 }}
                                     title={t('comms.clear_board', 'Clear Board')}

@@ -68,10 +68,42 @@ function getBackendPath() {
     // Return the command to run Python with start.py
     return {
         command: pythonExe,
-        args: [startScript, '--prod', '--api-port', String(CONFIG.backendPort)],
+        args: [startScript, '--prod', '--no-browser', '--api-port', String(CONFIG.backendPort)],
         cwd: appPath,
         isExe: true
     };
+}
+
+/**
+ * Kill any orphan processes hogging our ports.
+ * Runs on startup to ensure clean state.
+ */
+function killOrphanProcesses() {
+    if (process.platform === 'win32') {
+        const { execSync } = require('child_process');
+        for (const port of [CONFIG.backendPort]) {
+            try {
+                // Find and kill any process on our port
+                const result = execSync(
+                    `netstat -ano | findstr :${port} | findstr LISTENING`,
+                    { encoding: 'utf8', timeout: 5000 }
+                );
+                const lines = result.trim().split('\n');
+                const pids = new Set();
+                for (const line of lines) {
+                    const parts = line.trim().split(/\s+/);
+                    const pid = parseInt(parts[parts.length - 1]);
+                    if (pid > 0 && pid !== process.pid) pids.add(pid);
+                }
+                for (const pid of pids) {
+                    try {
+                        execSync(`taskkill /pid ${pid} /T /F`, { timeout: 5000 });
+                        console.log(`[HALT] Killed orphan process ${pid} on port ${port}`);
+                    } catch { /* already dead */ }
+                }
+            } catch { /* no process on port — clean */ }
+        }
+    }
 }
 
 /**
@@ -79,6 +111,9 @@ function getBackendPath() {
  */
 function startBackend() {
     return new Promise((resolve, reject) => {
+        // Clean up any orphan processes from previous run
+        killOrphanProcesses();
+
         const backend = getBackendPath();
 
         console.log(`[HALT] Starting backend: ${backend.command}`);
@@ -173,11 +208,13 @@ function stopBackend() {
         if (backendProcess) {
             console.log('[HALT] Stopping backend...');
 
-            // On Windows, we need to kill the process tree
+            // On Windows, we need to kill the process tree AND clean ports
             if (process.platform === 'win32') {
                 const { exec } = require('child_process');
                 exec(`taskkill /pid ${backendProcess.pid} /T /F`, () => {
                     backendProcess = null;
+                    // Also kill any orphan python processes on our port
+                    killOrphanProcesses();
                     resolve();
                 });
             } else {

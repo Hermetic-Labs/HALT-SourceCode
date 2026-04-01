@@ -1,4 +1,4 @@
-# HALT — Complete Feature Reference (v1.0.3)
+# HALT — Complete Feature Reference (v1.0.5)
 
 > **A portable AI-assisted emergency hospital operating system designed for chaotic or low-infrastructure environments.**
 >

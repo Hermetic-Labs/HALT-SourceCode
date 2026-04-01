@@ -30,7 +30,6 @@ import CommsPanel from './components/CommsPanel';
 import PermissionGate from './components/PermissionGate';
 import WardMap from './components/WardMap';
 import InventoryTab from './components/InventoryTab';
-import PatientRecordsTab from './components/PatientRecordsTab';
 import NetworkTab from './components/NetworkTab';
 import TriagePanel from './components/TriagePanel';
 import DistributionTab from './components/DistributionTab';
@@ -242,14 +241,42 @@ function AppOuter() {
     return !!(name && mode && mode !== 'setup');
   };
   const [authState, setAuthState] = useState<'loading' | 'setup' | 'ready'>('loading');
+  const [modelsReady, setModelsReady] = useState(false);
+  const [healthStatus, setHealthStatus] = useState<{gguf?: string[]; onnx?: string[]; whisper?: boolean} | null>(null);
   const [tab, setTab] = useState<Tab>(hasQRParams ? 'settings' : 'tasks');
 
-  // Initial identity check — brief spinner
+  // Initial identity check + model health gate
   useEffect(() => {
+    // Check identity immediately
     const timer = setTimeout(() => {
       setAuthState(_isSetupComplete() ? 'ready' : 'setup');
-    }, 600);
-    return () => clearTimeout(timer);
+    }, 400);
+
+    // Poll /health for model readiness
+    let cancelled = false;
+    const pollHealth = async () => {
+      while (!cancelled) {
+        try {
+          const res = await fetch('/health');
+          if (res.ok) {
+            const data = await res.json();
+            if (!cancelled) {
+              setHealthStatus(data);
+              const hasGGUF = (data.gguf?.length ?? 0) > 0;
+              const hasWhisper = !!data.whisper;
+              if (hasGGUF || hasWhisper) {
+                setModelsReady(true);
+                return; // Stop polling
+              }
+            }
+          }
+        } catch { /* server not up yet */ }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    };
+    pollHealth();
+
+    return () => { clearTimeout(timer); cancelled = true; };
   }, []);
 
   // Poll for setup completion while on setup screen
@@ -334,16 +361,35 @@ function AppOuter() {
     );
   }
 
-  // ── Loading spinner ──
-  if (authState === 'loading') {
+  // ── Loading / Model Init Splash ──
+  if (authState === 'loading' || !modelsReady) {
     return (
       <div className="app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0d1117' }}>
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: 'center', maxWidth: 400 }}>
           <div style={{
-            width: 40, height: 40, border: '3px solid #222', borderTop: '3px solid #3fb950',
-            borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px',
+            width: 56, height: 56, border: '3px solid #222', borderTop: '3px solid #3fb950',
+            borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 20px',
           }} />
-          <div style={{ fontSize: 13, color: '#666', fontWeight: 500, letterSpacing: '0.04em' }}>Initializing…</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#e6edf3', marginBottom: 8, letterSpacing: '-0.02em' }}>HALT</div>
+          <div style={{ fontSize: 12, color: '#6e7681', fontWeight: 500, letterSpacing: '0.06em', marginBottom: 24 }}>
+            {authState === 'loading' ? 'Checking identity…' : 'Waiting for models…'}
+          </div>
+          {healthStatus && (
+            <div style={{ textAlign: 'left', padding: '14px 18px', background: '#161b22', borderRadius: 8, border: '1px solid #30363d', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ color: (healthStatus.gguf?.length ?? 0) > 0 ? '#3fb950' : '#f0a500' }}>●</span>
+                <span style={{ color: '#8b949e' }}>LLM (GGUF): {(healthStatus.gguf?.length ?? 0) > 0 ? `✓ ${healthStatus.gguf![0]}` : 'Loading…'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ color: (healthStatus.onnx?.length ?? 0) > 0 ? '#3fb950' : '#484f58' }}>●</span>
+                <span style={{ color: '#8b949e' }}>Translation (ONNX): {(healthStatus.onnx?.length ?? 0) > 0 ? '✓ Ready' : 'Not loaded'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: healthStatus.whisper ? '#3fb950' : '#484f58' }}>●</span>
+                <span style={{ color: '#8b949e' }}>Speech (Whisper): {healthStatus.whisper ? '✓ Ready' : 'Not loaded'}</span>
+              </div>
+            </div>
+          )}
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
@@ -387,7 +433,7 @@ function AppInner(p: any) {
     tab, setTab, massCas, setMassCas,
     section, setSection, query, setQuery,
     currentSection, selectedId, detail,
-    clock, meshMode,
+    clock,
     changeLang,
     handleSmallSelect,
   } = p;
@@ -742,17 +788,6 @@ function AppInner(p: any) {
                   </div>
                 </details>
 
-                {/* ── Patient Records Section (leader only) ────────── */}
-                {meshMode === 'leader' && (
-                  <details style={{ background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
-                    <summary style={{ padding: '14px 20px', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: 'var(--text)', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span>📋</span> {t('app.tab.records')}
-                    </summary>
-                    <div style={{ borderTop: '1px solid var(--border)' }}>
-                      <PatientRecordsTab />
-                    </div>
-                  </details>
-                )}
 
                 {/* ── Device Permissions ────────────────────────────── */}
                 <details style={{ background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
